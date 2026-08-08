@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>aPASAT - Cognitive Control Task</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --panel-bg: #1e1e1e;
+            --text-main: #ffffff;
+            --text-muted: #aaaaaa;
+            --primary: #4ecca3;
+            --danger: #e57373;
+            --warning: #ffb74d;
+            --btn-hover: #3a9f7d;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            user-select: none;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .screen {
+            display: none;
+            flex-direction: column;
+            background-color: var(--panel-bg);
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+
+        .screen.active {
+            display: flex;
+        }
+
+        h1, h2 {
+            text-align: center;
+            margin-top: 0;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+        
+        .sub-label {
+            font-size: 0.75rem;
+            color: #888;
+            margin-bottom: 5px;
+            margin-top: -3px;
+        }
+
+        select, input {
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #333;
+            background-color: #2c2c2c;
+            color: white;
+            font-size: 1rem;
+        }
+
+        button {
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            background-color: var(--primary);
+            color: #121212;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: var(--btn-hover);
+        }
+
+        .btn-danger {
+            background-color: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background-color: #d32f2f;
+        }
+
+        .btn-secondary {
+            background-color: #444;
+            color: white;
+            margin-bottom: 15px;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #555;
+        }
+
+        /* Game Screen Specifics */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .top-bar button {
+            padding: 8px 15px;
+            font-size: 0.9rem;
+        }
+
+        .timer-display {
+            font-size: 1.5rem;
+            font-weight: bold;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .main-display {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 250px;
+        }
+
+        .number-display {
+            font-size: 8rem;
+            font-weight: bold;
+            transition: color 0.1s;
+        }
+
+        .controls-mobile {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 30px;
+            gap: 15px;
+        }
+
+        .controls-mobile button {
+            flex: 1;
+            padding: 20px;
+            font-size: 1.2rem;
+            background-color: #333;
+            color: white;
+        }
+        
+        .controls-mobile button:active {
+            background-color: #555;
+        }
+
+        /* Results Screen */
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #333;
+        }
+
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        
+        <!-- MAIN MENU SCREEN -->
+        <div id="menuScreen" class="screen active">
+            <h1>aPASAT (CCT Mode)</h1>
+            
+            <div class="form-group">
+                <label>Task Mode</label>
+                <select id="taskMode">
+                    <option value="adaptive">Adaptive (±100ms based on performance)</option>
+                    <option value="fixed">Fixed (Constant Speed)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Starting Reaction Window (ms)</label>
+                <div class="sub-label">Time given to react AFTER the number finishes speaking.</div>
+                <input type="number" id="startSpeed" min="50" max="5000" step="100" value="1000">
+            </div>
+
+            <div class="form-group">
+                <label>Session Duration (Minutes)</label>
+                <input type="number" id="duration" min="1" max="60" value="2">
+            </div>
+
+            <div class="form-group">
+                <label>Key Bindings</label>
+                <select id="keyBindings">
+                    <option value="left-pos">Left Arrow = YES (Sum) | Right Arrow = NO (Not Sum)</option>
+                    <option value="right-pos">Right Arrow = YES (Sum) | Left Arrow = NO (Not Sum)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Voice Speed</label>
+                <select id="voiceSpeed">
+                    <option value="1.0">Normal (1.0x)</option>
+                    <option value="1.5">Fast (1.5x)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Instant Feedback</label>
+                <select id="instantFeedback">
+                    <option value="on">On (Flashes Green/Red)</option>
+                    <option value="off">Off</option>
+                </select>
+            </div>
+
+            <button id="testAudioBtn" class="btn-secondary">🔊 Test Audio Volume</button>
+            <button id="startBtn">Start Session</button>
+        </div>
+
+        <!-- GAME SCREEN -->
+        <div id="gameScreen" class="screen">
+            <div class="top-bar">
+                <button id="pauseBtn">Pause</button>
+                <div class="timer-display" id="timerDisplay">00:00</div>
+                <button id="endBtn" class="btn-danger">End Early</button>
+            </div>
+
+            <div style="text-align: center; color: var(--text-muted); font-size: 0.9rem;" id="speedIndicator">
+                Reaction Window: -- ms
+            </div>
+
+            <div class="main-display">
+                <div class="number-display" id="stimulusDisplay">Ready</div>
+            </div>
+
+            <div class="controls-mobile">
+                <button id="btnLeft">Left Key</button>
+                <button id="btnRight">Right Key</button>
+            </div>
+        </div>
+
+        <!-- RESULTS SCREEN -->
+        <div id="resultsScreen" class="screen">
+            <h2>Session Complete</h2>
+            
+            <div class="stat-row">
+                <span>Total Trials:</span>
+                <strong id="resTotal">0</strong>
+            </div>
+            <div class="stat-row">
+                <span>Correct Responses:</span>
+                <strong id="resCorrect" style="color: var(--primary);">0</strong>
+            </div>
+            <div class="stat-row">
+                <span>Incorrect Responses:</span>
+                <strong id="resIncorrect" style="color: var(--danger);">0</strong>
+            </div>
+            <div class="stat-row">
+                <span>Missed (Omissions):</span>
+                <strong id="resMissed" style="color: var(--warning);">0</strong>
+            </div>
+            <div class="stat-row">
+                <span>Overall Accuracy:</span>
+                <strong id="resAccuracy">0%</strong>
+            </div>
+            <div class="stat-row">
+                <span>Final Reaction Window:</span>
+                <strong id="resSpeed">0 ms</strong>
+            </div>
+
+            <button id="homeBtn" style="margin-top: 25px;">Back to Menu</button>
+        </div>
+
+    </div>
+
+    <script>
+        // --- State Variables ---
+        let config = {};
+        let gameState = {
+            isRunning: false,
+            isPaused: false,
+            timeRemaining: 0,
+            currentSpeed: 1000,
+            streakCorrect: 0,
+            streakIncorrect: 0,
+            lastSpoken: null,
+            timerInterval: null,
+            gameLoopTimeout: null
+        };
+        let stats = { total: 0, correct: 0, incorrect: 0, missed: 0 };
+        let currentTrial = null;
+
+        // --- DOM Elements ---
+        const screens = {
+            menu: document.getElementById('menuScreen'),
+            game: document.getElementById('gameScreen'),
+            results: document.getElementById('resultsScreen')
+        };
+
+        const inputs = {
+            mode: document.getElementById('taskMode'),
+            speed: document.getElementById('startSpeed'),
+            duration: document.getElementById('duration'),
+            keys: document.getElementById('keyBindings'),
+            voice: document.getElementById('voiceSpeed'),
+            feedback: document.getElementById('instantFeedback')
+        };
+
+        const ui = {
+            timer: document.getElementById('timerDisplay'),
+            stimulus: document.getElementById('stimulusDisplay'),
+            speedInd: document.getElementById('speedIndicator'),
+            btnLeft: document.getElementById('btnLeft'),
+            btnRight: document.getElementById('btnRight'),
+            pauseBtn: document.getElementById('pauseBtn')
+        };
+
+        // --- Initialization & Local Storage ---
+        function loadSettings() {
+            const saved = localStorage.getItem('apasat_cct_settings_v2');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (parsed.mode) inputs.mode.value = parsed.mode;
+                if (parsed.speed) inputs.speed.value = parsed.speed;
+                if (parsed.duration) inputs.duration.value = parsed.duration;
+                if (parsed.keys) inputs.keys.value = parsed.keys;
+                if (parsed.voice) inputs.voice.value = parsed.voice;
+                if (parsed.feedback) inputs.feedback.value = parsed.feedback;
+            }
+        }
+
+        function saveSettings() {
+            const settings = {
+                mode: inputs.mode.value,
+                speed: parseInt(inputs.speed.value),
+                duration: parseInt(inputs.duration.value),
+                keys: inputs.keys.value,
+                voice: parseFloat(inputs.voice.value),
+                feedback: inputs.feedback.value
+            };
+            localStorage.setItem('apasat_cct_settings_v2', JSON.stringify(settings));
+            return settings;
+        }
+
+        function switchScreen(screenName) {
+            Object.values(screens).forEach(s => s.classList.remove('active'));
+            screens[screenName].classList.add('active');
+        }
+
+        // --- Speech Synthesis ---
+        const synth = window.speechSynthesis;
+        window.speechUtteranceRef = null; // Prevents Google Chrome from aggressively garbage collecting the utterance mid-speech
+        
+        function testAudio() {
+            if (!('speechSynthesis' in window)) {
+                alert("Text-to-speech is not supported in this browser.");
+                return;
+            }
+            synth.cancel();
+            setTimeout(() => {
+                const utterance = new SpeechSynthesisUtterance("1, 2, 3");
+                utterance.rate = parseFloat(inputs.voice.value);
+                window.speechUtteranceRef = utterance;
+                synth.speak(utterance);
+            }, 20);
+        }
+
+        function speakText(text) {
+            if (!('speechSynthesis' in window)) return;
+            
+            synth.cancel(); 
+            
+            setTimeout(() => {
+                if (!gameState.isRunning || gameState.isPaused) return; 
+                const utterance = new SpeechSynthesisUtterance(text.toString());
+                utterance.rate = config.voice; 
+                window.speechUtteranceRef = utterance; // Pin to global memory to stop bugs
+                synth.speak(utterance);
+            }, 20);
+        }
+
+        // --- Game Logic ---
+        function startGame() {
+            config = saveSettings();
+            
+            speakText("Ready");
+
+            gameState = {
+                isRunning: true,
+                isPaused: false,
+                timeRemaining: config.duration * 60,
+                currentSpeed: config.speed,
+                streakCorrect: 0,
+                streakIncorrect: 0,
+                lastSpoken: null,
+                timerInterval: null,
+                gameLoopTimeout: null
+            };
+            
+            stats = { total: 0, correct: 0, incorrect: 0, missed: 0 };
+            currentTrial = null;
+
+            ui.pauseBtn.innerText = "Pause";
+            ui.btnLeft.innerText = config.keys === 'left-pos' ? "YES (Sum)" : "NO (Not Sum)";
+            ui.btnRight.innerText = config.keys === 'left-pos' ? "NO (Not Sum)" : "YES (Sum)";
+            
+            updateTimerDisplay();
+            updateSpeedIndicator();
+            switchScreen('game');
+
+            ui.stimulus.innerText = "+"; // Waiting symbol
+            ui.stimulus.style.color = "var(--text-main)";
+            
+            gameState.timerInterval = setInterval(handleTick, 1000);
+            
+            // Delay first trial slightly to let "Ready" finish playing
+            gameState.gameLoopTimeout = setTimeout(startNextTrial, 1200);
+        }
+
+        function handleTick() {
+            if (gameState.isPaused) return;
+            
+            gameState.timeRemaining--;
+            updateTimerDisplay();
+
+            if (gameState.timeRemaining <= 0) {
+                endGame();
+            }
+        }
+
+        function updateTimerDisplay() {
+            const m = Math.floor(gameState.timeRemaining / 60).toString().padStart(2, '0');
+            const s = (gameState.timeRemaining % 60).toString().padStart(2, '0');
+            ui.timer.innerText = `${m}:${s}`;
+        }
+
+        function updateSpeedIndicator() {
+            ui.speedInd.innerText = `Reaction Window: ${gameState.currentSpeed} ms`;
+        }
+
+        function togglePause() {
+            if (!gameState.isRunning) return;
+            
+            gameState.isPaused = !gameState.isPaused;
+            if (gameState.isPaused) {
+                clearTimeout(gameState.gameLoopTimeout);
+                synth.cancel();
+                ui.pauseBtn.innerText = "Resume";
+                ui.stimulus.innerText = "PAUSED";
+            } else {
+                ui.pauseBtn.innerText = "Pause";
+                startNextTrial();
+            }
+        }
+
+        function generateTrialData(lastSpoken, currentSpoken) {
+            const sum = lastSpoken + currentSpoken;
+            const isDouble = sum >= 10;
+            
+            let validNearMiss = [];
+            
+            if (isDouble) {
+                if (sum - 1 >= 10) validNearMiss.push(sum - 1);
+                if (sum + 1 <= 19) validNearMiss.push(sum + 1);
+            } else {
+                if (sum - 1 >= 1 && sum - 1 <= 9) validNearMiss.push(sum - 1);
+                if (sum + 1 <= 9) validNearMiss.push(sum + 1);
+            }
+            
+            let validStop = [];
+            let min = isDouble ? 10 : 1;
+            let max = isDouble ? 18 : 9; 
+            
+            for (let i = min; i <= max; i++) {
+                if (i !== sum && i !== sum - 1 && i !== sum + 1) {
+                    validStop.push(i);
+                }
+            }
+            
+            const r = Math.random();
+            let type, displayedNumber;
+            
+            if (r < 0.34) {
+                type = 'match';
+                displayedNumber = sum;
+            } else if (r < 0.67) {
+                type = 'nearMiss';
+                displayedNumber = validNearMiss[Math.floor(Math.random() * validNearMiss.length)];
+            } else {
+                type = 'stop';
+                displayedNumber = validStop[Math.floor(Math.random() * validStop.length)];
+            }
+            
+            return { sum, type, displayedNumber };
+        }
+
+        function evaluatePreviousTrial() {
+            if (!currentTrial || currentTrial.evaluated) return;
+            currentTrial.evaluated = true;
+
+            if (!currentTrial.responded) {
+                if (currentTrial.type === 'stop') {
+                    // Correctly withheld from responding to a stop stimulus
+                    registerResult(true, false); 
+                } else {
+                    // Missed a valid Match or Near-Miss stimulus
+                    stats.missed++;
+                    registerResult(false, false);
+                }
+            }
+        }
+
+        function startNextTrial() {
+            if (!gameState.isRunning || gameState.isPaused) return;
+
+            evaluatePreviousTrial();
+
+            // Generate new spoken number (1-9)
+            const currentSpoken = Math.floor(Math.random() * 9) + 1;
+            speakText(currentSpoken);
+
+            if (gameState.lastSpoken === null) {
+                gameState.lastSpoken = currentSpoken;
+                ui.stimulus.innerText = "+";
+            } else {
+                stats.total++;
+                const trialData = generateTrialData(gameState.lastSpoken, currentSpoken);
+                gameState.lastSpoken = currentSpoken;
+
+                currentTrial = {
+                    ...trialData,
+                    responded: false,
+                    evaluated: false
+                };
+
+                ui.stimulus.innerText = currentTrial.displayedNumber;
+                ui.stimulus.style.color = "var(--text-main)"; 
+            }
+
+            // CORE FIX: Decouple speech time from reaction time
+            // We allow a baseline amount of time for the browser to physically speak the number.
+            const estimatedSpeechDurationMs = config.voice >= 1.5 ? 400 : 600;
+            
+            // The next trial fires after the speech finishes + the user's allowed reaction window
+            const nextTrialDelay = estimatedSpeechDurationMs + gameState.currentSpeed;
+            
+            gameState.gameLoopTimeout = setTimeout(startNextTrial, nextTrialDelay);
+        }
+
+        function registerResult(isCorrect, isUserAction = true) {
+            if (isCorrect) {
+                stats.correct++;
+                gameState.streakCorrect++;
+                gameState.streakIncorrect = 0;
+                
+                if (isUserAction && config.feedback === 'on') {
+                    visualFeedback('var(--primary)');
+                }
+
+                // Adaptive decrease based on 4-in-a-row constraint
+                if (config.mode === 'adaptive' && gameState.streakCorrect >= 4) {
+                    gameState.currentSpeed = Math.max(50, gameState.currentSpeed - 100);
+                    gameState.streakCorrect = 0;
+                    updateSpeedIndicator();
+                }
+            } else {
+                if (isUserAction) stats.incorrect++; 
+                gameState.streakIncorrect++;
+                gameState.streakCorrect = 0;
+                
+                if (isUserAction && config.feedback === 'on') {
+                    visualFeedback('var(--danger)');
+                }
+
+                // Adaptive increase based on 4-in-a-row constraint
+                if (config.mode === 'adaptive' && gameState.streakIncorrect >= 4) {
+                    gameState.currentSpeed += 100;
+                    gameState.streakIncorrect = 0;
+                    updateSpeedIndicator();
+                }
+            }
+        }
+
+        function visualFeedback(color) {
+            ui.stimulus.style.color = color;
+            setTimeout(() => {
+                if (gameState.isRunning && !gameState.isPaused) {
+                    ui.stimulus.style.color = "var(--text-main)";
+                }
+            }, 150);
+        }
+
+        function handleInput(isLeft) {
+            if (!gameState.isRunning || gameState.isPaused || !currentTrial || currentTrial.responded || currentTrial.evaluated) return;
+
+            currentTrial.responded = true;
+
+            const isPosKey = (config.keys === 'left-pos' && isLeft) || (config.keys === 'right-pos' && !isLeft);
+            const isNegKey = !isPosKey;
+
+            let isCorrect = false;
+
+            if (currentTrial.type === 'stop') {
+                // ANY physical response on a stop trial is incorrect
+                isCorrect = false;
+            } else if (currentTrial.type === 'match' && isPosKey) {
+                isCorrect = true;
+            } else if (currentTrial.type === 'nearMiss' && isNegKey) {
+                isCorrect = true;
+            }
+
+            registerResult(isCorrect, true);
+        }
+
+        function endGame() {
+            gameState.isRunning = false;
+            clearTimeout(gameState.gameLoopTimeout);
+            clearInterval(gameState.timerInterval);
+            synth.cancel();
+            
+            evaluatePreviousTrial(); // Evaluate last pending trial
+
+            // Calculate Results
+            const totalValid = stats.correct + stats.incorrect + stats.missed;
+            const accuracy = totalValid > 0 ? ((stats.correct / totalValid) * 100).toFixed(1) : 0;
+
+            document.getElementById('resTotal').innerText = totalValid;
+            document.getElementById('resCorrect').innerText = stats.correct;
+            document.getElementById('resIncorrect').innerText = stats.incorrect;
+            document.getElementById('resMissed').innerText = stats.missed;
+            document.getElementById('resAccuracy').innerText = `${accuracy}%`;
+            document.getElementById('resSpeed').innerText = `${gameState.currentSpeed} ms`;
+
+            switchScreen('results');
+        }
+
+        // --- Event Listeners ---
+        window.addEventListener('load', loadSettings);
+        
+        document.getElementById('testAudioBtn').addEventListener('click', testAudio);
+        document.getElementById('startBtn').addEventListener('click', startGame);
+        document.getElementById('pauseBtn').addEventListener('click', togglePause);
+        document.getElementById('endBtn').addEventListener('click', endGame);
+        document.getElementById('homeBtn').addEventListener('click', () => switchScreen('menu'));
+
+        // Keyboard Controls
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') handleInput(true);
+            if (e.key === 'ArrowRight') handleInput(false);
+            if (e.key === ' ' || e.key === 'Escape') togglePause();
+        });
+
+        // Mobile Buttons
+        ui.btnLeft.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(true); });
+        ui.btnLeft.addEventListener('mousedown', () => handleInput(true));
+        
+        ui.btnRight.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(false); });
+        ui.btnRight.addEventListener('mousedown', () => handleInput(false));
+
+    </script>
+</body>
+</html>
