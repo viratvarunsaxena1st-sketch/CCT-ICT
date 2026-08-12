@@ -86,6 +86,7 @@
   .instructions-body { margin-top: 10px; font-size: 0.88rem; color: var(--text-muted); line-height: 1.55; }
   .instructions-body ul { margin: 8px 0 0; padding-left: 18px; }
   .instructions-body li { margin-bottom: 4px; }
+  #dichotic-instructions { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
   .key-tag {
     display: inline-block;
     background: var(--panel-recessed);
@@ -360,6 +361,15 @@
             <li><strong>It's the sum, off by one</strong> → press <span class="key-tag" id="hint-nomatch-key">Right</span></li>
             <li><strong>Anything else</strong> → press nothing</li>
           </ul>
+          <div id="dichotic-instructions" class="hidden">
+            <p><strong>Dichotic attention switching</strong> <span class="dim">(experimental)</span> — two voices now speak at once every interval: a low-pitched voice and a high-pitched voice. Only one is your target at a time. Add and judge digits from the target voice only, and let the other voice pass by unattended.</p>
+            <ul>
+              <li>A short <strong>low tone</strong> → switch your attention to the <strong>low voice</strong>.</li>
+              <li>A short <strong>high tone</strong> → switch your attention to the <strong>high voice</strong>.</li>
+              <li>The target changes every few trials with no warning besides that tone, so listen for it.</li>
+            </ul>
+            <p class="dim">The tone uses the beep volume setting below. Since two digits are read every interval, the fastest speed is also capped a bit higher than usual while this is on.</p>
+          </div>
         </div>
       </details>
 
@@ -418,6 +428,11 @@
           <button type="button" class="seg-btn" data-value="normal">Normal</button>
           <button type="button" class="seg-btn" data-value="fast">Fast · 1.5×</button>
         </div>
+      </div>
+
+      <div class="field field-toggle">
+        <label for="dichotic-toggle">Dichotic attention switching <span class="dim">(experimental)</span></label>
+        <label class="switch"><input type="checkbox" id="dichotic-toggle"><span class="switch-track"></span></label>
       </div>
 
       <div class="field field-toggle">
@@ -512,6 +527,15 @@
   var SOA_FRACTION = 0.15;     // fraction of the ISI between the spoken digit and the number appearing
   var VISIBLE_FRACTION = 0.60; // fraction of the ISI the number stays visible once it appears
 
+  // Dichotic attention-switching mode (experimental) — see the "Dual Audio
+  // Stream" section below for how these are used.
+  var DICHOTIC_MIN_ISI = 900;        // floor on ISI: two spoken digits need more room than one
+  var DICHOTIC_SWITCH_MIN_TRIALS = 3; // target dwell time, in trials, before the next switch
+  var DICHOTIC_SWITCH_MAX_TRIALS = 8;
+  var DICHOTIC_TONE_LOW_HZ = 200;     // cue tone for "switch to the low/Voice A stream"
+  var DICHOTIC_TONE_HIGH_HZ = 1000;   // cue tone for "switch to the high/Voice B stream"
+  var DICHOTIC_TONE_DURATION_SEC = 0.1;
+
   var DEFAULT_SETTINGS = {
     mode: 'adaptive',
     startingSpeedMs: 1200,
@@ -520,7 +544,8 @@
     instantFeedback: true,
     beepVolume: 50,
     voiceSpeed: 'normal',
-    mobileMode: false
+    mobileMode: false,
+    dichoticMode: false
   };
 
   // ============================================================
@@ -562,7 +587,8 @@
       instantFeedback: s.instantFeedback === undefined ? DEFAULT_SETTINGS.instantFeedback : !!s.instantFeedback,
       beepVolume: clamp(isNaN(vol) ? DEFAULT_SETTINGS.beepVolume : vol, 0, 100),
       voiceSpeed: s.voiceSpeed === 'fast' ? 'fast' : 'normal',
-      mobileMode: !!s.mobileMode
+      mobileMode: !!s.mobileMode,
+      dichoticMode: !!s.dichoticMode
     };
   }
 
@@ -600,7 +626,16 @@
     nextTrialAt: 0,
     showStimulusAt: null,
     hideStimulusAt: null,
-    sessionEndAt: 0
+    sessionEndAt: 0,
+    // Dichotic attention-switching mode: which stream ('A' = low/male,
+    // 'B' = high/female) is currently the attended target, the last digit
+    // heard in that stream (reset to null on every switch — see runTrial),
+    // and a countdown of trials left before the next switch.
+    dichotic: {
+      targetVoice: 'A',
+      prevTargetDigit: null,
+      trialsUntilSwitch: 0
+    }
   };
 
   var currentTrial = null;
@@ -621,6 +656,75 @@
       utter.rate = state.settings.voiceSpeed === 'fast' ? 1.5 : 1.0;
       window.speechSynthesis.speak(utter);
     } catch (e) { /* speech unavailable in this environment, ignore */ }
+  }
+
+  // ============================================================
+  // Dichotic attention-switching mode — dual voice streams (experimental)
+  //
+  // Platform constraints, so the approach below is honest about what a
+  // browser can actually do rather than silently failing to do it:
+  //
+  //  - PANNING: SpeechSynthesisUtterance has no AudioNode to connect to a
+  //    StereoPannerNode — the Web Speech API spec doesn't expose one, so
+  //    browsers render synthesized speech straight to the system output.
+  //    There's no standards-compliant way to hard-pan it left/right. The
+  //    two streams are made distinguishable instead with a fixed pitch
+  //    shift (and a different installed voice, where the browser offers
+  //    more than one) — Voice A low, Voice B high. The switch-cue tone
+  //    (playSwitchCue, below) IS genuinely panned via StereoPannerNode,
+  //    since it's a plain Web Audio oscillator with no such restriction.
+  //  - SIMULTANEITY: window.speechSynthesis is a single queue — browsers
+  //    speak queued utterances one after another, never overlapping, even
+  //    from two separate SpeechSynthesisUtterance objects. True
+  //    simultaneous dual-ear playback isn't achievable through the
+  //    standard API either. Voice A and Voice B are queued back-to-back
+  //    each trial instead, so both streams are still heard every interval.
+  // ============================================================
+  var dichoticVoices = { a: null, b: null };
+
+  function pickDichoticVoices() {
+    if (!('speechSynthesis' in window)) return;
+    var voices = window.speechSynthesis.getVoices();
+    if (!voices || !voices.length) return;
+    var male = null, female = null, i, name;
+    for (i = 0; i < voices.length; i++) {
+      name = (voices[i].name || '').toLowerCase();
+      if (!female && name.indexOf('female') !== -1) female = voices[i];
+      else if (!male && name.indexOf('male') !== -1) male = voices[i];
+    }
+    // Fall back to any two distinct voices, or one voice differentiated by
+    // pitch alone if that's all the browser offers.
+    dichoticVoices.a = male || voices[0];
+    dichoticVoices.b = female || voices[1] || voices[0];
+  }
+
+  if ('speechSynthesis' in window) {
+    pickDichoticVoices();
+    window.speechSynthesis.onvoiceschanged = pickDichoticVoices; // many browsers load voices async
+  }
+
+  function speakDichoticDigit(digit, channel) {
+    if (!('speechSynthesis' in window)) return;
+    try {
+      var utter = new SpeechSynthesisUtterance(String(digit));
+      utter.rate = state.settings.voiceSpeed === 'fast' ? 1.5 : 1.0;
+      if (channel === 'A') {
+        utter.pitch = 0.7; // low / "male"
+        if (dichoticVoices.a) utter.voice = dichoticVoices.a;
+      } else {
+        utter.pitch = 1.5; // high / "female"
+        if (dichoticVoices.b) utter.voice = dichoticVoices.b;
+      }
+      window.speechSynthesis.speak(utter);
+    } catch (e) { /* speech unavailable in this environment, ignore */ }
+  }
+
+  function speakDichoticPair(digitA, digitB) {
+    if (state.paused) return;
+    if (!('speechSynthesis' in window)) return;
+    try { window.speechSynthesis.cancel(); } catch (e) {} // clear backlog once per trial, not per-voice
+    speakDichoticDigit(digitA, 'A');
+    speakDichoticDigit(digitB, 'B');
   }
 
   // ============================================================
@@ -650,6 +754,30 @@
       var now = audioCtx.currentTime;
       osc.start(now);
       osc.stop(now + 0.18);
+    } catch (e) { /* ignore */ }
+  }
+
+  // 100ms tone cueing a dichotic target switch: low/200Hz panned hard left
+  // for "attend to Voice A", high/1000Hz panned hard right for "attend to
+  // Voice B" — a real StereoPannerNode, unlike the speech streams above.
+  function playSwitchCue(targetVoice) {
+    if (state.paused) return;
+    try {
+      ensureAudioContext();
+      if (!audioCtx) return;
+      var osc = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      var panner = audioCtx.createStereoPanner();
+      osc.type = 'sine';
+      osc.frequency.value = targetVoice === 'A' ? DICHOTIC_TONE_LOW_HZ : DICHOTIC_TONE_HIGH_HZ;
+      panner.pan.value = targetVoice === 'A' ? -1 : 1; // Voice A = left, Voice B = right
+      gain.gain.value = clamp(state.settings.beepVolume / 100, 0, 1);
+      osc.connect(gain);
+      gain.connect(panner);
+      panner.connect(audioCtx.destination);
+      var now = audioCtx.currentTime;
+      osc.start(now);
+      osc.stop(now + DICHOTIC_TONE_DURATION_SEC);
     } catch (e) { /* ignore */ }
   }
 
@@ -753,7 +881,8 @@
       state.correctStreak++;
       state.incorrectStreak = 0;
       if (state.settings.mode === 'adaptive' && state.correctStreak >= 4) {
-        state.currentISI = Math.max(MIN_ISI, state.currentISI - 100);
+        var speedFloor = state.settings.dichoticMode ? DICHOTIC_MIN_ISI : MIN_ISI;
+        state.currentISI = Math.max(speedFloor, state.currentISI - 100);
         state.correctStreak = 0;
         updateSpeedIndicator();
       }
@@ -801,12 +930,61 @@
 
     var trialStart = performance.now();
     var isi = state.currentISI;
-    var digit = 1 + Math.floor(Math.random() * 9);
+    var dichoticOn = state.settings.dichoticMode;
+
+    // Commit the next tick before doing anything else — same reasoning as
+    // always, and it matters even more here since dichotic mode does more
+    // synchronous work below (a second digit, switch bookkeeping).
+    state.nextTrialAt += isi;
+    trialTimerId = setTimeout(runTrial, Math.max(0, state.nextTrialAt - performance.now()));
+
+    var digit, priorDigit, dichoticMeta = null;
+
+    if (dichoticOn) {
+      // Two independent streams every trial: Voice A (low) and Voice B
+      // (high). Only the currently-targeted stream's running sequence
+      // feeds the CCT sum / ICT judgment below — the other keeps playing
+      // as a distractor but never enters the arithmetic.
+      var digitA = 1 + Math.floor(Math.random() * 9);
+      var digitB = 1 + Math.floor(Math.random() * 9);
+
+      var isSwitchTrial = state.dichotic.trialsUntilSwitch <= 0;
+      if (isSwitchTrial) {
+        state.dichotic.targetVoice = state.dichotic.targetVoice === 'A' ? 'B' : 'A';
+        // The newly-attended stream starts fresh: the user wasn't tracking
+        // it while it was the distractor, so its last digit isn't usable
+        // for a sum yet — same as prevDigit being null at session start.
+        state.dichotic.prevTargetDigit = null;
+        state.dichotic.trialsUntilSwitch = DICHOTIC_SWITCH_MIN_TRIALS +
+          Math.floor(Math.random() * (DICHOTIC_SWITCH_MAX_TRIALS - DICHOTIC_SWITCH_MIN_TRIALS + 1));
+      }
+      state.dichotic.trialsUntilSwitch--;
+
+      var targetVoice = state.dichotic.targetVoice;
+      digit = (targetVoice === 'A') ? digitA : digitB;
+      priorDigit = state.dichotic.prevTargetDigit;
+      dichoticMeta = { voiceADigit: digitA, voiceBDigit: digitB, targetVoice: targetVoice, isSwitchTrial: isSwitchTrial };
+
+      // Speak on deferred ticks so neither call can block the schedule
+      // commit above. On a switch trial the cue tone has to land first, so
+      // the digit pair is pushed back just past the tone's length.
+      if (isSwitchTrial) {
+        setTimeout(function () { playSwitchCue(targetVoice); }, 0);
+        setTimeout(function () { speakDichoticPair(digitA, digitB); }, DICHOTIC_TONE_DURATION_SEC * 1000 + 30);
+      } else {
+        setTimeout(function () { speakDichoticPair(digitA, digitB); }, 0);
+      }
+    } else {
+      digit = 1 + Math.floor(Math.random() * 9);
+      priorDigit = state.prevDigit;
+      // Speak on a deferred tick so it can't block the line above.
+      setTimeout(function () { speakDigit(digit); }, 0);
+    }
 
     var trial = {
       isi: isi,
       digit: digit,
-      prevDigit: state.prevDigit,
+      prevDigit: priorDigit,
       stimulusType: null,
       displayValue: null,
       correctResponseType: null,
@@ -817,15 +995,9 @@
       correct: null,
       evaluated: false,
       onsetTime: null,
-      rt: null
+      rt: null,
+      dichotic: dichoticMeta
     };
-
-    // Commit the next tick before doing anything else.
-    state.nextTrialAt += isi;
-    trialTimerId = setTimeout(runTrial, Math.max(0, state.nextTrialAt - performance.now()));
-
-    // Speak on a deferred tick so it can't block the line above.
-    setTimeout(function () { speakDigit(digit); }, 0);
 
     // Defensively clear any stale show/hide timers before arming this trial's.
     clearTimeout(showTimerId);
@@ -833,8 +1005,8 @@
     showTimerId = null;
     hideTimerId = null;
 
-    if (state.prevDigit !== null) {
-      var sum = state.prevDigit + digit;
+    if (priorDigit !== null) {
+      var sum = priorDigit + digit;
       var stim = pickStimulus(sum);
       trial.stimulusType = stim.type;
       trial.displayValue = stim.displayValue;
@@ -852,7 +1024,8 @@
       showPlaceholder();
     }
 
-    state.prevDigit = digit;
+    if (dichoticOn) { state.dichotic.prevTargetDigit = digit; }
+    else { state.prevDigit = digit; }
     currentTrial = trial;
   }
 
@@ -923,7 +1096,9 @@
     clearTimeout(hideTimerId);
     clearInterval(countdownIntervalId);
 
-    state.currentISI = state.settings.startingSpeedMs;
+    state.currentISI = state.settings.dichoticMode
+      ? Math.max(state.settings.startingSpeedMs, DICHOTIC_MIN_ISI)
+      : state.settings.startingSpeedMs;
     state.correctStreak = 0;
     state.incorrectStreak = 0;
     state.prevDigit = null;
@@ -932,6 +1107,14 @@
     state.showStimulusAt = null;
     state.hideStimulusAt = null;
     currentTrial = null;
+
+    // Randomize which stream starts as the target, and force trial 1 to
+    // play the orienting cue tone (trialsUntilSwitch <= 0 triggers it) so
+    // the user isn't left guessing which voice to attend to from the start.
+    state.dichotic.targetVoice = Math.random() < 0.5 ? 'A' : 'B';
+    state.dichotic.prevTargetDigit = null;
+    state.dichotic.trialsUntilSwitch = 0;
+    if (state.settings.dichoticMode) pickDichoticVoices(); // refresh in case voices loaded late
 
     el.numberFrame.classList.remove('flash-correct', 'flash-incorrect');
     el.pauseOverlay.classList.add('hidden');
@@ -1045,6 +1228,18 @@
     el.hintNoMatchKey.textContent = swapped ? 'Left' : 'Right';
   }
 
+  // The beep volume slider now drives two things: the optional incorrect-
+  // response feedback beep, and (when dichotic mode is on) the switch cue
+  // tone, which is functionally required rather than optional — so the
+  // field stays visible whenever either feature needs it.
+  function applyBeepVolumeVisibility() {
+    el.beepVolumeField.classList.toggle('hidden', !state.settings.instantFeedback && !state.settings.dichoticMode);
+  }
+
+  function applyDichoticInstructionsVisibility() {
+    el.dichoticInstructions.classList.toggle('hidden', !state.settings.dichoticMode);
+  }
+
   function populateMenuFromSettings() {
     setSegmented(el.modeToggle, state.settings.mode);
     el.speedSlider.value = state.settings.startingSpeedMs;
@@ -1063,10 +1258,12 @@
 
     setSegmented(el.keysToggle, String(state.settings.swapKeys));
     el.feedbackToggle.checked = state.settings.instantFeedback;
-    el.beepVolumeField.classList.toggle('hidden', !state.settings.instantFeedback);
     el.beepVolume.value = state.settings.beepVolume;
     el.beepValue.textContent = state.settings.beepVolume + '%';
     setSegmented(el.voiceToggle, state.settings.voiceSpeed);
+    el.dichoticToggle.checked = state.settings.dichoticMode;
+    applyBeepVolumeVisibility();
+    applyDichoticInstructionsVisibility();
     el.mobileToggle.checked = state.settings.mobileMode;
 
     updateHintKeyLabels();
@@ -1121,7 +1318,7 @@
 
     el.feedbackToggle.addEventListener('change', function () {
       state.settings.instantFeedback = el.feedbackToggle.checked;
-      el.beepVolumeField.classList.toggle('hidden', !state.settings.instantFeedback);
+      applyBeepVolumeVisibility();
       persistSettings();
     });
 
@@ -1141,6 +1338,13 @@
       if (!btn) return;
       state.settings.voiceSpeed = btn.getAttribute('data-value');
       setSegmented(el.voiceToggle, state.settings.voiceSpeed);
+      persistSettings();
+    });
+
+    el.dichoticToggle.addEventListener('change', function () {
+      state.settings.dichoticMode = el.dichoticToggle.checked;
+      applyBeepVolumeVisibility();
+      applyDichoticInstructionsVisibility();
       persistSettings();
     });
 
@@ -1189,6 +1393,8 @@
     el.beepValue = q('beep-value');
     el.testBeepBtn = q('test-beep-btn');
     el.voiceToggle = document.querySelector('[data-group="voice"]');
+    el.dichoticToggle = q('dichotic-toggle');
+    el.dichoticInstructions = q('dichotic-instructions');
     el.mobileToggle = q('mobile-toggle');
     el.startBtn = q('start-btn');
     el.hintMatchKey = q('hint-match-key');
