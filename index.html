@@ -1,0 +1,2313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>aPASAT — Adaptive CCT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+
+  :root {
+    --bg: #0c0d0f;
+    --panel: #16181b;
+    --panel-recessed: #0a0b0c;
+    --border: #2b2e33;
+    --border-soft: #1f2226;
+    --text: #eef0f2;
+    --text-muted: #888e97;
+    --amber: #f0a94e;
+    --amber-hover: #f7b968;
+    --success: #4fd08a;
+    --danger: #ef5b52;
+    --radius: 16px;
+    --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  #app { min-height: 100vh; display: flex; flex-direction: column; }
+  .screen { flex: 1; display: flex; flex-direction: column; }
+  .hidden { display: none !important; }
+
+  button, input, select { font-family: inherit; color: inherit; }
+  button { -webkit-tap-highlight-color: transparent; }
+
+  button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+
+  /* ---------- Shared panel ---------- */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  /* ---------- Menu ---------- */
+  #menu-screen { align-items: center; justify-content: center; padding: 32px 20px; }
+  .menu-panel { width: 100%; max-width: 520px; padding: 32px; }
+
+  .brand h1 { margin: 0; font-size: 1.9rem; font-weight: 700; letter-spacing: -0.01em; }
+  .subtitle { margin: 6px 0 24px; color: var(--text-muted); font-size: 0.92rem; }
+  .dim { color: var(--text-muted); }
+
+  .instructions {
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 26px;
+  }
+  .instructions summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--amber);
+    list-style: none;
+  }
+  .instructions summary::-webkit-details-marker { display: none; }
+  .instructions summary::before { content: '+ '; }
+  details[open] summary::before { content: '– '; }
+  .instructions-body { margin-top: 10px; font-size: 0.88rem; color: var(--text-muted); line-height: 1.55; }
+  .instructions-body ul { margin: 8px 0 0; padding-left: 18px; }
+  .instructions-body li { margin-bottom: 4px; }
+  #dichotic-instructions { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
+  .key-tag {
+    display: inline-block;
+    background: var(--panel-recessed);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 7px;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text);
+  }
+
+  .field { margin-bottom: 22px; }
+  .field > label {
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .field-toggle { display: flex; align-items: center; justify-content: space-between; }
+  .field-toggle > label { margin-bottom: 0; }
+
+  .readout { color: var(--amber); font-family: var(--font-mono); text-transform: none; letter-spacing: 0; font-weight: 600; }
+
+  .segmented {
+    display: flex;
+    background: var(--panel-recessed);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 3px;
+    gap: 3px;
+  }
+  .seg-btn {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    padding: 9px 8px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.83rem;
+    transition: background 0.15s, color 0.15s;
+  }
+  .seg-btn.active { background: var(--amber); color: #1a1206; }
+
+  select, input[type="number"] {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--panel-recessed);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    font-size: 0.92rem;
+  }
+
+  .duration-row { display: flex; gap: 10px; }
+  .duration-row select { flex: 1; }
+  .duration-row input[type="number"] { width: 110px; }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--panel-recessed);
+    border: 1px solid var(--border);
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--amber);
+    cursor: pointer;
+    border: 3px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--border);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--amber);
+    cursor: pointer;
+    border: 3px solid var(--bg);
+  }
+
+  .volume-row { display: flex; align-items: center; gap: 10px; }
+  .volume-row input[type="range"] { flex: 1; }
+
+  .weight-group { display: flex; flex-direction: column; gap: 14px; }
+  .weight-item-head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+
+  .switch { position: relative; display: inline-block; width: 44px; height: 25px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .switch-track {
+    position: absolute; inset: 0; background: var(--panel-recessed);
+    border: 1px solid var(--border); border-radius: 999px; cursor: pointer; transition: 0.15s;
+  }
+  .switch-track::before {
+    content: ""; position: absolute; height: 17px; width: 17px; left: 2px; top: 2px;
+    background: var(--text-muted); border-radius: 50%; transition: 0.15s;
+  }
+  .switch input:checked + .switch-track { background: rgba(240,169,78,0.18); border-color: var(--amber); }
+  .switch input:checked + .switch-track::before { transform: translateX(19px); background: var(--amber); }
+
+  .bounds-group { display: flex; flex-direction: column; gap: 12px; }
+  .bound-row { display: flex; align-items: center; gap: 10px; }
+  .bound-label { flex: 1; font-size: 0.88rem; color: var(--text); }
+  .bound-input-wrap { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .bound-input-wrap input[type="number"] { width: 76px; padding: 8px 10px; }
+
+  .btn {
+    font-weight: 600;
+    border-radius: 10px;
+    padding: 12px 18px;
+    border: 1px solid var(--border);
+    background: var(--panel-recessed);
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: 0.15s;
+  }
+  .btn:hover { border-color: var(--text-muted); }
+  .btn-block { width: 100%; }
+  .btn-primary { background: var(--amber); color: #1a1206; border-color: var(--amber); }
+  .btn-primary:hover { background: var(--amber-hover); }
+  .btn-ghost { background: transparent; }
+  .btn-danger-ghost { background: transparent; color: var(--danger); border-color: rgba(239,91,82,0.4); }
+  .btn-danger-ghost:hover { background: rgba(239,91,82,0.08); border-color: var(--danger); }
+  .btn-sm { padding: 8px 12px; font-size: 0.8rem; }
+  .weight-reset-btn { margin-top: 12px; }
+  .history-open-btn { margin-top: 10px; }
+
+  /* ---------- Play ---------- */
+  .top-bar {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 14px 22px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .stat-block { display: flex; flex-direction: column; gap: 2px; }
+  .stat-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+  .stat-value { font-size: 1.15rem; font-weight: 600; }
+  .top-bar-controls { margin-left: auto; display: flex; gap: 10px; }
+
+  .number-stage { flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px; }
+
+  .number-frame {
+    position: relative;
+    min-width: 240px;
+    min-height: 240px;
+    padding: 24px;
+    border-radius: 22px;
+    background: var(--panel-recessed);
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.65), inset 0 0 0 1px rgba(255,255,255,0.02);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .corner { position: absolute; width: 16px; height: 16px; border: 2px solid rgba(240,169,78,0.35); }
+  .corner.tl { top: 10px; left: 10px; border-right: none; border-bottom: none; border-radius: 4px 0 0 0; }
+  .corner.tr { top: 10px; right: 10px; border-left: none; border-bottom: none; border-radius: 0 4px 0 0; }
+  .corner.bl { bottom: 10px; left: 10px; border-right: none; border-top: none; border-radius: 0 0 0 4px; }
+  .corner.br { bottom: 10px; right: 10px; border-left: none; border-top: none; border-radius: 0 0 4px 0; }
+
+  .number-display {
+    font-weight: 600;
+    font-size: clamp(4rem, 20vw, 8.5rem);
+    color: var(--amber);
+    min-width: 1ch;
+    text-align: center;
+    transition: opacity 0.06s linear;
+    line-height: 1;
+  }
+
+
+  .key-hint {
+    display: flex;
+    justify-content: space-between;
+    max-width: 420px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 0 30px 22px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .mobile-buttons { display: flex; gap: 12px; padding: 0 20px 22px; }
+  .mobile-btn {
+    flex: 1;
+    min-height: 84px;
+    border-radius: 16px;
+    font-size: 1rem;
+    font-weight: 700;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    cursor: pointer;
+    transition: 0.1s;
+  }
+  .mobile-btn:active { transform: scale(0.96); background: var(--amber); color: #1a1206; }
+  #mobile-positive-btn { order: 1; }
+  #mobile-negative-btn { order: 2; }
+
+  .pause-overlay {
+    position: fixed; inset: 0;
+    background: rgba(6,7,8,0.92);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 50;
+  }
+  .pause-panel { width: 100%; max-width: 320px; padding: 28px; text-align: center; }
+  .pause-panel h2 { margin: 0 0 18px; }
+  .pause-panel .btn { margin-bottom: 10px; }
+  .pause-panel .btn:last-child { margin-bottom: 0; }
+
+  /* Zen mode: hides everything but the stimulus itself during play (top
+     bar stats/controls, key hints). Mobile-mode's on-screen response
+     buttons stay — they're the input, not informational chrome — as do
+     the number frame and pause overlay. A single small always-reachable
+     button takes over pause/end access so zen mode never traps the user;
+     it opens the same pause overlay the top-bar Pause button does. */
+  .zen-pause-btn {
+    display: none;
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 20;
+    width: 34px;
+    height: 34px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: rgba(10,11,12,0.55);
+    color: var(--text-muted);
+    opacity: 0.4;
+    cursor: pointer;
+    font-size: 0.95rem;
+    line-height: 1;
+    transition: opacity 0.15s, color 0.15s;
+  }
+  .zen-pause-btn:hover, .zen-pause-btn:focus-visible { opacity: 1; color: var(--text); }
+  #app.zen-mode #play-screen .top-bar,
+  #app.zen-mode #play-screen .key-hint {
+    display: none;
+  }
+  #app.zen-mode #play-screen .zen-pause-btn { display: flex; }
+
+  /* ---------- Report ---------- */
+  #report-screen { align-items: center; justify-content: center; padding: 32px 20px; }
+  .report-panel { width: 100%; max-width: 620px; padding: 32px; text-align: center; }
+  .report-panel h1 { margin: 0 0 20px; font-size: 1.6rem; }
+  .overall { margin-bottom: 24px; }
+  .overall-value { font-size: 3.4rem; font-weight: 700; color: var(--amber); }
+  .overall-label { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 10px;
+    margin-bottom: 26px;
+  }
+  .stat-card {
+    background: var(--panel-recessed);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 10px;
+  }
+  .stat-card .value { font-size: 1.3rem; font-weight: 600; }
+  .stat-card .label { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+  /* ---------- History ---------- */
+  #history-screen { align-items: center; justify-content: center; padding: 32px 20px; }
+  .history-panel { width: 100%; max-width: 620px; padding: 32px; }
+  .history-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .history-header h1 { margin: 0; font-size: 1.4rem; }
+  .history-empty { color: var(--text-muted); font-size: 0.88rem; text-align: center; padding: 34px 10px; }
+  .history-list {
+    max-height: 50vh;
+    overflow-y: auto;
+    margin-bottom: 22px;
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+  }
+  .history-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .history-item:last-child { border-bottom: none; }
+  .history-item-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .history-item-date { font-size: 0.85rem; font-weight: 600; }
+  .history-item-tags { font-size: 0.75rem; color: var(--text-muted); }
+  .history-item-stats { display: flex; gap: 16px; flex-shrink: 0; }
+  .history-stat { text-align: right; }
+  .history-stat .num { font-size: 0.9rem; font-weight: 600; }
+  .history-stat .lbl { font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
+
+  @media (max-width: 480px) {
+    .top-bar { padding: 12px 16px; gap: 16px; }
+    .stat-value { font-size: 1rem; }
+    .number-display { font-size: clamp(3.4rem, 24vw, 6rem); }
+    .menu-panel, .report-panel, .history-panel { padding: 24px 20px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .number-display { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <section id="menu-screen" class="screen">
+    <div class="panel menu-panel">
+      <div class="brand">
+        <h1>aPASAT</h1>
+        <p class="subtitle">Adaptive Paced Auditory Serial Addition Test <span class="dim">— CCT</span></p>
+      </div>
+
+      <details class="instructions">
+        <summary>How this works</summary>
+        <div class="instructions-body">
+          <p>Digits from 1–9 are read aloud, one at a time. Add each new digit to the one spoken right before it — not a running total. A number flashes on screen after every pair: decide whether it's that sum.</p>
+          <ul>
+            <li><strong>It is the sum</strong> → press <span class="key-tag" id="hint-match-key">Left</span></li>
+            <li><strong>It's the sum, off by one</strong> → press <span class="key-tag" id="hint-nomatch-key">Right</span></li>
+            <li><strong>Anything else</strong> → press nothing</li>
+          </ul>
+          <div id="dichotic-instructions" class="hidden">
+            <p><strong>Dichotic attention switching</strong> <span class="dim">(experimental)</span> — every interval, two different digits now play at once, one in each ear. A short beep in one ear tells you which ear to follow. Add and judge digits from that ear only, and let the other ear pass by unattended — until the beep plays in the other ear.</p>
+            <p>The two ears also speak in different voices — <strong>male in the left ear</strong>, <strong>female in the right ear</strong> — as a constant cue for which stream is which, on top of the beep.</p>
+            <ul>
+              <li>A beep in your <strong>left ear</strong> → follow the <strong>left ear</strong> from then on.</li>
+              <li>A beep in your <strong>right ear</strong> → follow the <strong>right ear</strong> from then on.</li>
+              <li>The target keeps switching every few trials with no warning besides that beep, so listen for it.</li>
+            </ul>
+            <p class="dim">Needs stereo headphones — the two streams won't separate on a single mono speaker. The beep uses the beep volume setting below.</p>
+          </div>
+        </div>
+      </details>
+
+      <div class="field">
+        <label>Mode</label>
+        <div class="segmented" data-group="mode">
+          <button type="button" class="seg-btn" data-value="adaptive">Adaptive</button>
+          <button type="button" class="seg-btn" data-value="fixed">Fixed</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Starting speed <span class="readout" id="speed-value"></span></label>
+        <input type="range" id="speed-slider" min="200" max="3000" step="100">
+      </div>
+
+      <div class="field" id="adaptive-bounds-field">
+        <label>Adaptive speed limits <span class="dim">(optional)</span></label>
+        <div class="bounds-group">
+          <div class="bound-row">
+            <label class="switch"><input type="checkbox" id="floor-toggle"><span class="switch-track"></span></label>
+            <span class="bound-label">Floor <span class="dim">— won't go faster than</span></span>
+            <span class="bound-input-wrap hidden" id="floor-input-wrap">
+              <input type="number" id="floor-value" min="200" max="5000" step="100"><span class="dim">ms</span>
+            </span>
+          </div>
+          <div class="bound-row">
+            <label class="switch"><input type="checkbox" id="ceiling-toggle"><span class="switch-track"></span></label>
+            <span class="bound-label">Ceiling <span class="dim">— won't go slower than</span></span>
+            <span class="bound-input-wrap hidden" id="ceiling-input-wrap">
+              <input type="number" id="ceiling-value" min="200" max="5000" step="100"><span class="dim">ms</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Session duration</label>
+        <div class="duration-row">
+          <select id="duration-select">
+            <option value="60">1 min</option>
+            <option value="120">2 min</option>
+            <option value="180">3 min</option>
+            <option value="300">5 min</option>
+            <option value="600">10 min</option>
+            <option value="custom">Custom</option>
+          </select>
+          <input type="number" id="duration-custom" min="0.5" max="60" step="0.5" placeholder="minutes" class="hidden">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Number type probabilities</label>
+        <div class="weight-group">
+          <div class="weight-item">
+            <div class="weight-item-head"><span>Sum</span><span class="readout" id="weight-sum-value"></span></div>
+            <input type="range" id="weight-sum" min="0" max="100" step="1">
+          </div>
+          <div class="weight-item">
+            <div class="weight-item-head"><span>Sum ± 1</span><span class="readout" id="weight-plusminus-value"></span></div>
+            <input type="range" id="weight-plusminus" min="0" max="100" step="1">
+          </div>
+          <div class="weight-item">
+            <div class="weight-item-head"><span>Other</span><span class="readout" id="weight-stop-value"></span></div>
+            <input type="range" id="weight-stop" min="0" max="100" step="1">
+          </div>
+        </div>
+        <button type="button" id="weights-reset-btn" class="btn btn-ghost btn-sm weight-reset-btn">Reset to defaults</button>
+      </div>
+
+      <div class="field">
+        <label>Response keys</label>
+        <div class="segmented" data-group="keys">
+          <button type="button" class="seg-btn" data-value="false">Left = Match</button>
+          <button type="button" class="seg-btn" data-value="true">Right = Match</button>
+        </div>
+      </div>
+
+      <div class="field field-toggle">
+        <label for="feedback-toggle">Instant feedback</label>
+        <label class="switch"><input type="checkbox" id="feedback-toggle"><span class="switch-track"></span></label>
+      </div>
+
+      <div class="field" id="beep-volume-field">
+        <label>Beep volume <span class="readout" id="beep-value"></span></label>
+        <div class="volume-row">
+          <input type="range" id="beep-volume" min="0" max="100" step="5">
+          <button type="button" id="test-beep-btn" class="btn btn-ghost btn-sm">Test</button>
+        </div>
+      </div>
+
+      <div class="field" id="voice-select-field">
+        <label>Voice <span class="dim">(non-dichotic mode)</span></label>
+        <div class="segmented" data-group="voice-select">
+          <button type="button" class="seg-btn" data-value="male">Male</button>
+          <button type="button" class="seg-btn" data-value="female">Female</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Voice speed</label>
+        <div class="segmented" data-group="voice">
+          <button type="button" class="seg-btn" data-value="normal">Normal</button>
+          <button type="button" class="seg-btn" data-value="fast">Fast · 1.5×</button>
+        </div>
+      </div>
+
+      <div class="field field-toggle">
+        <label for="dichotic-toggle">Dichotic attention switching <span class="dim">(experimental)</span></label>
+        <label class="switch"><input type="checkbox" id="dichotic-toggle"><span class="switch-track"></span></label>
+      </div>
+
+      <div class="field field-toggle">
+        <label for="mobile-toggle">Mobile mode <span class="dim">(on-screen buttons)</span></label>
+        <label class="switch"><input type="checkbox" id="mobile-toggle"><span class="switch-track"></span></label>
+      </div>
+
+      <div class="field field-toggle">
+        <label for="zen-toggle">Zen mode <span class="dim">(hide non-gameplay UI)</span></label>
+        <label class="switch"><input type="checkbox" id="zen-toggle"><span class="switch-track"></span></label>
+      </div>
+
+      <button id="start-btn" class="btn btn-primary btn-block">Start session</button>
+      <button type="button" id="history-btn" class="btn btn-ghost btn-block history-open-btn">History</button>
+    </div>
+  </section>
+
+  <section id="play-screen" class="screen hidden">
+    <button type="button" id="zen-pause-btn" class="zen-pause-btn" aria-label="Pause session">⏸</button>
+    <div class="top-bar">
+      <div class="stat-block">
+        <span class="stat-label">Time</span>
+        <span class="stat-value mono" id="timer-display">00:00</span>
+      </div>
+      <div class="stat-block">
+        <span class="stat-label">Speed</span>
+        <span class="stat-value mono" id="speed-readout">— ms</span>
+      </div>
+      <div class="top-bar-controls">
+        <button id="pause-btn" class="btn btn-ghost">Pause</button>
+        <button id="end-btn" class="btn btn-danger-ghost">End</button>
+      </div>
+    </div>
+
+    <div class="number-stage">
+      <div class="number-frame" id="number-frame">
+        <span class="corner tl"></span>
+        <span class="corner tr"></span>
+        <span class="corner bl"></span>
+        <span class="corner br"></span>
+        <div class="number-display mono" id="number-display"></div>
+      </div>
+    </div>
+
+    <div class="key-hint">
+      <span id="hint-left">← Match</span>
+      <span id="hint-right">No match →</span>
+    </div>
+
+    <div class="mobile-buttons hidden" id="mobile-buttons">
+      <button type="button" class="mobile-btn" id="mobile-negative-btn">No match</button>
+      <button type="button" class="mobile-btn" id="mobile-positive-btn">Match</button>
+    </div>
+
+    <div class="pause-overlay hidden" id="pause-overlay">
+      <div class="panel pause-panel">
+        <h2>Paused</h2>
+        <button id="resume-btn" class="btn btn-primary btn-block">Resume</button>
+        <button id="pause-end-btn" class="btn btn-danger-ghost btn-block">End session</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="report-screen" class="screen hidden">
+    <div class="panel report-panel">
+      <h1>Session complete</h1>
+      <div class="overall">
+        <div class="overall-value mono" id="overall-accuracy-value">0%</div>
+        <div class="overall-label">Overall accuracy</div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card"><div class="value mono" id="sum-accuracy">–</div><div class="label">Sum trials</div></div>
+        <div class="stat-card"><div class="value mono" id="pm-accuracy">–</div><div class="label">±1 trials</div></div>
+        <div class="stat-card"><div class="value mono" id="stop-accuracy">–</div><div class="label">Withhold trials</div></div>
+        <div class="stat-card"><div class="value mono" id="avg-rt">–</div><div class="label">Avg reaction time</div></div>
+        <div class="stat-card"><div class="value mono" id="misses-count">–</div><div class="label">Misses</div></div>
+        <div class="stat-card"><div class="value mono" id="false-alarms-count">–</div><div class="label">False alarms</div></div>
+        <div class="stat-card"><div class="value mono" id="final-speed">–</div><div class="label">Final speed</div></div>
+        <div class="stat-card hidden" id="fastest-speed-card"><div class="value mono" id="fastest-speed">–</div><div class="label">Fastest speed</div></div>
+        <div class="stat-card hidden" id="slowest-speed-card"><div class="value mono" id="slowest-speed">–</div><div class="label">Slowest speed</div></div>
+        <div class="stat-card"><div class="value mono" id="total-trials">–</div><div class="label">Total trials</div></div>
+      </div>
+
+      <button id="back-to-menu-btn" class="btn btn-primary btn-block">Back to menu</button>
+    </div>
+  </section>
+
+  <section id="history-screen" class="screen hidden">
+    <div class="panel history-panel">
+      <div class="history-header">
+        <h1>Session history</h1>
+        <button type="button" id="clear-history-btn" class="btn btn-danger-ghost btn-sm">Clear</button>
+      </div>
+
+      <div class="history-empty hidden" id="history-empty">No sessions recorded yet — finish a session to see it here.</div>
+      <div class="history-list" id="history-list"></div>
+
+      <button id="history-back-btn" class="btn btn-primary btn-block">Back to menu</button>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ============================================================
+  // Constants
+  // ============================================================
+  var MIN_ISI = 200;
+  var MAX_ISI = 5000;
+  var STORAGE_KEY = 'apasat_settings_v1';
+  var HISTORY_STORAGE_KEY = 'apasat_history_v1';
+  var HISTORY_MAX_ENTRIES = 500; // soft cap so the history log can't grow without bound
+  var SOA_FRACTION = 0.15;     // fraction of the ISI between the spoken digit and the number appearing
+  var VISIBLE_FRACTION = 0.60; // fraction of the ISI the number stays visible once it appears
+
+  // Dichotic attention-switching mode (experimental) — see the digit-audio
+  // and trial-scheduling sections below for how these are used.
+  // Both ears are scheduled to start on the exact same sample (see
+  // prepareAndScheduleTrial), so — unlike the old speechSynthesis-based
+  // build, which had to speak the two digits one after another — dichotic
+  // mode no longer needs any extra headroom over the normal floor.
+  var DICHOTIC_MIN_ISI = 200;        // floor on ISI: same as the normal floor
+  var DICHOTIC_SWITCH_MIN_TRIALS = 3; // target dwell time, in trials, before the next switch
+  var DICHOTIC_SWITCH_MAX_TRIALS = 8;
+  var DICHOTIC_TONE_LEFT_HZ = 200;    // cue tone for "follow the left ear" (also panned hard left)
+  var DICHOTIC_TONE_RIGHT_HZ = 1000;  // cue tone for "follow the right ear" (also panned hard right)
+  var DICHOTIC_TONE_DURATION_SEC = 0.1;
+  var DICHOTIC_CUE_GAP_SEC = 0.03;    // gap after the cue tone before the digit pair starts
+
+  // Fast (1.5x) voice speed fetches a separate pre-stretched file set
+  // (see "Digit audio" below) rather than scaling playbackRate at runtime.
+
+  // Lookahead audio scheduler (see "Trial engine" below) — decouples actual
+  // sound onset from JS timer jitter by always scheduling playback a fixed
+  // window into the future on the AudioContext's own clock: the standard
+  // technique for sample-accurate timing with the Web Audio API.
+  var SCHEDULE_LOOKAHEAD_SEC = 0.12;
+  var SCHEDULER_TICK_MS = 30;
+
+  var DEFAULT_SETTINGS = {
+    mode: 'adaptive',
+    startingSpeedMs: 1200,
+    durationSec: 120,
+    swapKeys: false,
+    instantFeedback: true,
+    beepVolume: 50,
+    voiceSpeed: 'normal',
+    voice: 'male',       // which pre-recorded voice speaks in non-dichotic mode ('male' | 'female'); dichotic mode always uses both
+    mobileMode: false,
+    dichoticMode: false,
+    zenMode: false,
+    // Optional user-set limits on how far adaptive mode can push the ISI
+    // in either direction. Both off by default, in which case the only
+    // bounds are the engine's own MIN_ISI/MAX_ISI.
+    adaptiveFloorEnabled: false,
+    adaptiveFloorMs: MIN_ISI,
+    adaptiveCeilingEnabled: false,
+    adaptiveCeilingMs: MAX_ISI,
+    // Relative likelihoods of the three visually-presented number types.
+    // Don't need to sum to 100 — pickStimulus normalizes them — but they
+    // reproduce the original fixed 34/33/33 split as shipped defaults.
+    stimulusWeights: { sum: 34, plusminus: 33, stop: 33 }
+  };
+
+  // ============================================================
+  // Storage adapter — prefers window.storage (Claude artifact
+  // sandbox), falls back to localStorage when running as a plain
+  // downloaded HTML file in a regular browser.
+  // ============================================================
+  var storageAdapter = {
+    get: function (key) {
+      if (window.storage && typeof window.storage.get === 'function') {
+        return window.storage.get(key, false).then(function (r) {
+          return r && r.value ? r.value : null;
+        }).catch(function () { return null; });
+      }
+      try { return Promise.resolve(localStorage.getItem(key)); }
+      catch (e) { return Promise.resolve(null); }
+    },
+    set: function (key, value) {
+      if (window.storage && typeof window.storage.set === 'function') {
+        return window.storage.set(key, value, false).catch(function () {});
+      }
+      try { localStorage.setItem(key, value); } catch (e) {}
+      return Promise.resolve();
+    }
+  };
+
+  function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+  function sanitizeStimulusWeights(w) {
+    w = w || {};
+    var s = parseInt(w.sum, 10);
+    var p = parseInt(w.plusminus, 10);
+    var o = parseInt(w.stop, 10);
+    s = clamp(isNaN(s) ? DEFAULT_SETTINGS.stimulusWeights.sum : s, 0, 100);
+    p = clamp(isNaN(p) ? DEFAULT_SETTINGS.stimulusWeights.plusminus : p, 0, 100);
+    o = clamp(isNaN(o) ? DEFAULT_SETTINGS.stimulusWeights.stop : o, 0, 100);
+    if (s + p + o <= 0) {
+      // Never persist all-zero weights — fall back to the shipped defaults.
+      return {
+        sum: DEFAULT_SETTINGS.stimulusWeights.sum,
+        plusminus: DEFAULT_SETTINGS.stimulusWeights.plusminus,
+        stop: DEFAULT_SETTINGS.stimulusWeights.stop
+      };
+    }
+    return { sum: s, plusminus: p, stop: o };
+  }
+
+  function sanitizeSettings(s) {
+    s = s || {};
+    var speed = parseInt(s.startingSpeedMs, 10);
+    var dur = parseInt(s.durationSec, 10);
+    var vol = parseInt(s.beepVolume, 10);
+    var floorMs = parseInt(s.adaptiveFloorMs, 10);
+    var ceilingMs = parseInt(s.adaptiveCeilingMs, 10);
+    return {
+      mode: s.mode === 'fixed' ? 'fixed' : 'adaptive',
+      startingSpeedMs: clamp(isNaN(speed) ? DEFAULT_SETTINGS.startingSpeedMs : speed, 200, 3000),
+      durationSec: clamp(isNaN(dur) ? DEFAULT_SETTINGS.durationSec : dur, 30, 3600),
+      swapKeys: !!s.swapKeys,
+      instantFeedback: s.instantFeedback === undefined ? DEFAULT_SETTINGS.instantFeedback : !!s.instantFeedback,
+      beepVolume: clamp(isNaN(vol) ? DEFAULT_SETTINGS.beepVolume : vol, 0, 100),
+      voiceSpeed: s.voiceSpeed === 'fast' ? 'fast' : 'normal',
+      voice: s.voice === 'female' ? 'female' : 'male',
+      mobileMode: !!s.mobileMode,
+      dichoticMode: !!s.dichoticMode,
+      zenMode: !!s.zenMode,
+      adaptiveFloorEnabled: !!s.adaptiveFloorEnabled,
+      adaptiveFloorMs: clamp(isNaN(floorMs) ? DEFAULT_SETTINGS.adaptiveFloorMs : floorMs, MIN_ISI, MAX_ISI),
+      adaptiveCeilingEnabled: !!s.adaptiveCeilingEnabled,
+      adaptiveCeilingMs: clamp(isNaN(ceilingMs) ? DEFAULT_SETTINGS.adaptiveCeilingMs : ceilingMs, MIN_ISI, MAX_ISI),
+      stimulusWeights: sanitizeStimulusWeights(s.stimulusWeights)
+    };
+  }
+
+  function loadSettings() {
+    return storageAdapter.get(STORAGE_KEY).then(function (raw) {
+      if (!raw) return sanitizeSettings({});
+      try { return sanitizeSettings(JSON.parse(raw)); }
+      catch (e) { return sanitizeSettings({}); }
+    });
+  }
+
+  function saveSettings(settings) {
+    storageAdapter.set(STORAGE_KEY, JSON.stringify(settings));
+  }
+
+  // ============================================================
+  // Session history — every completed session is appended here as a
+  // compact summary record (same figures shown on the report screen),
+  // capped at HISTORY_MAX_ENTRIES so storage can't grow without bound.
+  // ============================================================
+  function loadHistory() {
+    return storageAdapter.get(HISTORY_STORAGE_KEY).then(function (raw) {
+      if (!raw) return [];
+      try {
+        var list = JSON.parse(raw);
+        return Array.isArray(list) ? list : [];
+      } catch (e) { return []; }
+    });
+  }
+
+  function saveHistory(list) {
+    return storageAdapter.set(HISTORY_STORAGE_KEY, JSON.stringify(list));
+  }
+
+  function appendHistoryRecord(record) {
+    return loadHistory().then(function (list) {
+      list.push(record);
+      if (list.length > HISTORY_MAX_ENTRIES) {
+        list = list.slice(list.length - HISTORY_MAX_ENTRIES);
+      }
+      return saveHistory(list);
+    });
+  }
+
+  // ============================================================
+  // DOM refs
+  // ============================================================
+  var el = {};
+  function q(id) { return document.getElementById(id); }
+
+  // ============================================================
+  // App / session state
+  // ============================================================
+  var state = {
+    screen: 'menu',
+    settings: null,
+    currentISI: 1200,
+    // Fastest/slowest currentISI actually reached this session (adaptive
+    // mode only — see startSession for initialization and evaluateTrial
+    // for where these track the two adaptive speed-change points). Report
+    // screen only surfaces these for adaptive sessions; in fixed mode
+    // they'd just equal the fixed speed the whole way through.
+    fastestISI: null,
+    slowestISI: null,
+    correctStreak: 0,
+    incorrectStreak: 0,
+    prevDigit: null,
+    results: [],
+    paused: false,
+    pausedAt: 0,
+    nextTrialAudioTime: 0,
+    showStimulusAt: null,
+    hideStimulusAt: null,
+    sessionEndAt: 0,
+    // Dichotic attention-switching mode: which ear ('L' or 'R') is
+    // currently the attended target, the last digit heard in that ear
+    // (reset to null on every switch — see prepareAndScheduleTrial), and a
+    // countdown of trials left before the next switch.
+    dichotic: {
+      targetEar: 'L',
+      prevTargetDigit: null,
+      trialsUntilSwitch: 0
+    }
+  };
+
+  var currentTrial = null;
+  var showTimerId = null;
+  var hideTimerId = null;
+  var countdownIntervalId = null;
+  var audioCtx = null;
+  var ticker = null; // scheduler "tick" source - a Worker when available, else a plain interval
+
+  // ============================================================
+  // Digit audio — pre-rendered speech, decoded once into AudioBuffers
+  // ============================================================
+  // The previous build spoke digits with speechSynthesis(). Two hard
+  // platform limits made that unfixable for what this app needs now:
+  //
+  //  - PANNING: a SpeechSynthesisUtterance has no AudioNode to connect to a
+  //    StereoPannerNode — the Web Speech API spec doesn't expose one — so
+  //    there's no standards-compliant way to hard-pan spoken digits to one
+  //    ear.
+  //  - SIMULTANEITY: window.speechSynthesis is a single queue — browsers
+  //    speak queued utterances one after another, never overlapping, so two
+  //    ears could never truly start together through that API.
+  //
+  // Digits are short WAV files, pre-rendered once with a real speech
+  // synthesis engine (not a formant/tone approximation), fetched once at
+  // startup and decoded into AudioBuffers — the same approach (and the
+  // same reason it sounds clean) as docct's preloadVoicePack: fetch ->
+  // arrayBuffer -> decodeAudioData -> keep the decoded buffer in memory,
+  // so every trial just schedules an already-decoded buffer with zero
+  // per-trial network or decode latency. There are two full voice sets —
+  // audio/male and audio/female — so dichotic mode can give each ear its
+  // own consistent voice as an extra cue for which stream is which.
+  // Non-dichotic mode plays whichever of the two the player picks in
+  // settings (voice: 'male' | 'female'). Every clip is silence-trimmed
+  // and loudness-normalized to a consistent RMS level so no digit is
+  // quieter or harder to make out than the others.
+  //
+  // "Fast" (1.5x) is a second, independently pre-rendered set of clips —
+  // audio/male-fast and audio/female-fast — time-stretched offline with a
+  // phase-vocoder (ffmpeg + Rubber Band, formant-preserved) rather than
+  // sped up at runtime via AudioBufferSourceNode.playbackRate. playbackRate
+  // resampling raises pitch right along with speed — the classic
+  // "chipmunk" effect on a human voice at 1.5x — because it's literally
+  // just replaying the same samples faster, not shortening the sound
+  // while keeping its tone. A real time-stretch changes duration only, so
+  // the fast voice still sounds like the same person talking quickly, not
+  // a pitched-up recording. Every clip — either voice, either speed — is
+  // always played back at playbackRate 1; "fast" just means "fetch a
+  // different, shorter file."
+  //
+  // Web Audio can pan each clip independently and start any two of them
+  // on the exact same sample — which is what genuine dichotic
+  // (simultaneous, per-ear) playback actually requires. It also removes
+  // speechSynthesis's own unpredictable per-call startup latency, which
+  // was the main source of audio not landing on time at faster speeds.
+  //
+  // Requires being served over http(s) — e.g. GitHub Pages, or locally
+  // via `npx serve .` / `python3 -m http.server`. fetch() of local files
+  // is blocked by CORS when a page is opened directly from disk (file://),
+  // so double-clicking this file will not play audio; run a local server
+  // or deploy it.
+  // ============================================================
+  var VOICE_AUDIO_BASE = {
+    A: 'audio/male',
+    B: 'audio/female',
+    A_FAST: 'audio/male-fast',
+    B_FAST: 'audio/female-fast'
+  };
+
+  var digitBuffersA = {};      // digit (1-9) -> decoded AudioBuffer, voice A (male), normal speed
+  var digitBuffersB = {};      // digit (1-9) -> decoded AudioBuffer, voice B (female), normal speed
+  var digitBuffersA_fast = {}; // digit (1-9) -> decoded AudioBuffer, voice A (male), pre-stretched 1.5x
+  var digitBuffersB_fast = {}; // digit (1-9) -> decoded AudioBuffer, voice B (female), pre-stretched 1.5x
+  var digitAudioReady = null;  // Promise, resolves once all 36 are fetched + decoded
+
+  function decodeAllDigitAudio() {
+    if (digitAudioReady) return digitAudioReady;
+    ensureAudioContext();
+    if (!audioCtx) { digitAudioReady = Promise.resolve(); return digitAudioReady; }
+    function loadSet(basePath, dest) {
+      var jobs = [];
+      var loadOne = function (digit) {
+        jobs.push(
+          fetch(basePath + '/' + digit + '.wav')
+            .then(function (resp) { return resp.arrayBuffer(); })
+            .then(function (arrayBuffer) { return audioCtx.decodeAudioData(arrayBuffer); })
+            .then(function (audioBuffer) { dest[digit] = audioBuffer; })
+            .catch(function () { /* leave that digit silent rather than failing the app */ })
+        );
+      };
+      for (var digit = 1; digit <= 9; digit++) loadOne(digit);
+      return jobs;
+    }
+    var jobs = loadSet(VOICE_AUDIO_BASE.A, digitBuffersA)
+      .concat(loadSet(VOICE_AUDIO_BASE.B, digitBuffersB))
+      .concat(loadSet(VOICE_AUDIO_BASE.A_FAST, digitBuffersA_fast))
+      .concat(loadSet(VOICE_AUDIO_BASE.B_FAST, digitBuffersB_fast));
+    digitAudioReady = Promise.all(jobs);
+    return digitAudioReady;
+  }
+
+  var pendingSources = []; // active/queued AudioBufferSourceNodes, so pause() can cut them off cleanly
+
+  // ============================================================
+  // Voice enhancement chain
+  //
+  // The source recordings are 16kHz/mono and quite narrow-band - almost
+  // all of their energy sits under ~1-2kHz, with very little in the
+  // 6-8kHz "air"/clarity range that makes speech sound present rather
+  // than muffled. Rather than re-record anything, every digit playback
+  // is run through a small mastering chain that:
+  //   - trims input gain to leave headroom for everything below (see
+  //     "why the trim" below - this is the fix for audible cracking)
+  //   - high-passes below 90Hz (clears out rumble, no speech content lost)
+  //   - adds a presence boost around 3.2kHz (consonant clarity)
+  //   - lifts what top end already exists with a gentle high shelf
+  //   - runs a parallel "exciter" branch - the >2.5kHz content pushed
+  //     through a soft-saturation curve, which synthesizes new harmonics
+  //     that extend brightness beyond the recording's original band limit
+  //     (a standard technique, similar to a hardware aural exciter) -
+  //     mixed back in at a low level so it adds sparkle without hiss
+  //   - a light compressor for a more consistent, present loudness
+  //   - a final safety limiter (see below)
+  // Built fresh per call (a handful of cheap AudioNodes) so two
+  // simultaneous ears in dichotic mode never share state and can't affect
+  // each other's tone or level.
+  //
+  // Why the trim - this chain used to crack audibly on some digits
+  // (worst offenders: male 5/6/7) at ANY playback speed, which was the
+  // tell that it wasn't a scheduling/overlap problem but a per-clip
+  // gain-staging one. Two things were compounding:
+  //   1. decodeAudioData resamples these 16kHz files up to the
+  //      AudioContext's real sample rate (44.1/48kHz), and that resample
+  //      reconstructs the *true* peak of the original waveform - which
+  //      measures up to ~1.2dB hotter than the 16kHz file's own sample
+  //      peak suggested. E.g. male/6.wav looks like -0.86dBFS at its
+  //      native rate but its true peak after resampling is +0.33dBFS -
+  //      already over full scale before this chain touches it at all.
+  //   2. The presence/shelf boosts and the exciter (which was driven
+  //      hard enough - tanh with amount=6 - that most consonant/sibilant
+  //      bursts saturated to near-full excursion, not a subtle sparkle)
+  //      then added several more dB on top. Measured pre-compressor peak
+  //      on male/6.wav: +5.2dBFS, ~0.55% of its samples over full scale.
+  // A compressor's attack time can claw some of that back but can't be
+  // trusted to catch every transient on every browser/device, which is
+  // what was actually producing the cracking. The -5dB trim below gives
+  // the boosts room to work without redlining, the exciter is driven much
+  // more gently now, and the limiter at the very end is a hard guarantee
+  // regardless of what upstream gain-staging math might still miss.
+  // ============================================================
+  var exciterCurve = null;
+  function getExciterCurve() {
+    if (exciterCurve) return exciterCurve;
+    // amount=2 (was 6): a gentle drive that saturates progressively with
+    // how loud the isolated high-frequency content is, instead of
+    // slamming almost anything above ~0.3 amplitude to a near-square
+    // wave - which is what amount=6 actually did, turning "sparkle" into
+    // audible grit on every sibilant/consonant burst.
+    var n = 1024, amount = 2, norm = Math.tanh(amount);
+    exciterCurve = new Float32Array(n);
+    for (var i = 0; i < n; i++) {
+      var x = (i / (n - 1)) * 2 - 1;
+      exciterCurve[i] = Math.tanh(amount * x) / norm;
+    }
+    return exciterCurve;
+  }
+
+  // Last-resort safety limiter (see "why the trim" above): fully
+  // transparent - output equals input - below 0.85 amplitude, then
+  // smoothly saturates toward a 0.98 ceiling. Not a substitute for the
+  // headroom/exciter fixes above (it should rarely engage with those in
+  // place), just a hard backstop so no upstream gain-staging mistake, on
+  // any browser, can ever reach the destination as a clipped sample.
+  var limiterCurve = null;
+  function getLimiterCurve() {
+    if (limiterCurve) return limiterCurve;
+    var n = 1024, thresh = 0.85, ceiling = 0.98;
+    limiterCurve = new Float32Array(n);
+    for (var i = 0; i < n; i++) {
+      var x = (i / (n - 1)) * 2 - 1;
+      var s = x < 0 ? -1 : 1, ax = Math.abs(x);
+      limiterCurve[i] = ax < thresh ? x
+        : s * (thresh + (ceiling - thresh) * Math.tanh((ax - thresh) / (ceiling - thresh)));
+    }
+    return limiterCurve;
+  }
+
+  function buildVoiceEnhancementChain(ctx) {
+    var preTrim = ctx.createGain(); preTrim.gain.value = 0.562; // -5dB headroom, see comment above
+
+    var hp = ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 90; hp.Q.value = 0.7;
+
+    var presence = ctx.createBiquadFilter();
+    presence.type = 'peaking'; presence.frequency.value = 3200; presence.Q.value = 0.9; presence.gain.value = 3;
+
+    var airShelf = ctx.createBiquadFilter();
+    airShelf.type = 'highshelf'; airShelf.frequency.value = 6000; airShelf.gain.value = 2;
+
+    var exciterSplit = ctx.createBiquadFilter();
+    exciterSplit.type = 'highpass'; exciterSplit.frequency.value = 2500; exciterSplit.Q.value = 0.7;
+
+    var shaper = ctx.createWaveShaper();
+    shaper.curve = getExciterCurve();
+    shaper.oversample = '4x';
+
+    var exciterGain = ctx.createGain(); exciterGain.gain.value = 0.12;
+    var dryGain = ctx.createGain(); dryGain.gain.value = 1.0;
+    var sumGain = ctx.createGain(); sumGain.gain.value = 1.0;
+
+    var comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -20; comp.knee.value = 12; comp.ratio.value = 3;
+    comp.attack.value = 0.0015; comp.release.value = 0.15;
+
+    // Makeup gain: restores the loudness the -5dB trim and the more
+    // conservative boosts above give up, so average output level lands
+    // close to where the original (uncorrected) chain sat - checked by
+    // comparing average output level across all 36 clips, not guessed.
+    var outGain = ctx.createGain(); outGain.gain.value = 1.413; // +3dB
+
+    var limiter = ctx.createWaveShaper();
+    limiter.curve = getLimiterCurve();
+    limiter.oversample = '4x';
+
+    preTrim.connect(hp);
+    hp.connect(presence);
+    presence.connect(airShelf);
+    airShelf.connect(dryGain);
+    dryGain.connect(sumGain);
+    airShelf.connect(exciterSplit);
+    exciterSplit.connect(shaper);
+    shaper.connect(exciterGain);
+    exciterGain.connect(sumGain);
+    sumGain.connect(comp);
+    comp.connect(outGain);
+    outGain.connect(limiter);
+
+    return { input: preTrim, output: limiter };
+  }
+
+  // Schedules one digit to start at the precise audio-clock time `when`.
+  // pan: -1 full left, +1 full right, anything else = center (both ears).
+  function scheduleDigitBuffer(digit, when, pan, rate, buffers) {
+    if (!audioCtx) return null;
+    var buf = (buffers || digitBuffersA)[digit];
+    if (!buf) return null;
+    var src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    // setValueAtTime (rather than the bare `.value =` setter) ties this
+    // change to the exact same audio-clock instant the source starts, so
+    // there's no window where a not-yet-applied value could be picked up
+    // late - see the identical reasoning on the pan value just below.
+    src.playbackRate.setValueAtTime(rate || 1, when);
+
+    var chain = buildVoiceEnhancementChain(audioCtx);
+    src.connect(chain.input);
+    var tail = chain.output;
+
+    var panner = null;
+    if (pan === -1 || pan === 1) {
+      panner = audioCtx.createStereoPanner();
+      // setValueAtTime, scheduled for the same instant this trial's audio
+      // actually starts (`when`), rather than the ambiguous `.value =`
+      // setter (which applies "now" and then just holds - fine in the
+      // common case, but leaves a timing gap between "JS sets it" and
+      // "source starts" that isn't guaranteed to be handled identically
+      // by every browser/device's audio thread). Binding both to the same
+      // scheduled instant removes that gap entirely.
+      panner.pan.setValueAtTime(pan, when);
+      tail.connect(panner);
+      panner.connect(audioCtx.destination);
+    } else {
+      tail.connect(audioCtx.destination);
+    }
+    src.onended = function () {
+      var idx = pendingSources.indexOf(src);
+      if (idx !== -1) pendingSources.splice(idx, 1);
+      try { src.disconnect(); } catch (e) {}
+      try { chain.input.disconnect(); } catch (e) {} // tears down the rest of this instance's chain
+    };
+    pendingSources.push(src);
+    try { src.start(when); } catch (e) { /* ignore - e.g. `when` already passed */ }
+    return src;
+  }
+
+  function stopAllPendingAudio() {
+    pendingSources.forEach(function (src) {
+      try { src.stop(); } catch (e) {}
+      try { src.disconnect(); } catch (e) {}
+    });
+    pendingSources = [];
+  }
+
+  // ============================================================
+  // Beep (Web Audio — no external asset, no load delay)
+  // ============================================================
+  function ensureAudioContext() {
+    if (!audioCtx) {
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        // Explicitly pin the destination to real stereo output. Left to
+        // its defaults, some browsers/OS audio-session configurations will
+        // fold everything down to mono (e.g. certain Bluetooth profiles,
+        // or an audio session opened in a "voice call" style category) -
+        // which would silently defeat dichotic (separate-ear) playback.
+        // Pinning this once, up front, is cheap insurance.
+        if (audioCtx.destination.maxChannelCount >= 2) {
+          audioCtx.destination.channelCount = 2;
+          audioCtx.destination.channelCountMode = 'explicit';
+          audioCtx.destination.channelInterpretation = 'speakers';
+        }
+      }
+      catch (e) { audioCtx = null; }
+    }
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(function () {});
+    }
+  }
+
+  function playBeep(volumeFraction) {
+    try {
+      ensureAudioContext();
+      if (!audioCtx) return;
+      var osc = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      // Triangle rather than square: far fewer/softer upper harmonics, so
+      // the feedback tone reads as a clean "note" instead of a buzzy
+      // alarm - matters here since this can fire often during a session.
+      osc.type = 'triangle';
+      var now = audioCtx.currentTime;
+      osc.frequency.setValueAtTime(820, now);
+      var vol = clamp(volumeFraction, 0, 1);
+      var dur = 0.18, attack = 0.008, release = 0.03;
+      // A short linear fade in/out instead of an instant on/off - without
+      // it the waveform gets cut off mid-cycle, which is an audible
+      // click/pop at both ends of every single beep.
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(vol, now + attack);
+      gain.gain.setValueAtTime(vol, now + dur - release);
+      gain.gain.linearRampToValueAtTime(0, now + dur);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + dur);
+      osc.onended = function () {
+        try { osc.disconnect(); } catch (e) {}
+        try { gain.disconnect(); } catch (e) {}
+      };
+    } catch (e) { /* ignore */ }
+  }
+
+  // Cue beep for a dichotic ear switch, scheduled at a precise audio-clock
+  // time (rather than fired immediately) so it lines up exactly with the
+  // digit pair that follows it. Panned hard to the ear to follow next, and
+  // also frequency-coded (low = left, high = right) as a redundant cue in
+  // case true stereo separation isn't available on the playback device.
+  function scheduleSwitchCue(when, targetEar) {
+    if (!audioCtx) return;
+    try {
+      var osc = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      var panner = audioCtx.createStereoPanner();
+      osc.type = 'sine';
+      // All three time-varying params use setValueAtTime pinned to `when`
+      // (this cue's own scheduled start), not the bare `.value =` setter
+      // and not "now". That keeps the frequency/pan/level changes locked
+      // to the exact same audio-clock instant the oscillator itself
+      // starts, with no gap where a not-yet-applied value could matter.
+      osc.frequency.setValueAtTime(targetEar === 'L' ? DICHOTIC_TONE_LEFT_HZ : DICHOTIC_TONE_RIGHT_HZ, when);
+      panner.pan.setValueAtTime(targetEar === 'L' ? -1 : 1, when);
+      var vol = clamp(state.settings.beepVolume / 100, 0, 1);
+      var dur = DICHOTIC_TONE_DURATION_SEC;
+      var attack = 0.008, release = 0.025;
+      var holdUntil = when + Math.max(attack, dur - release);
+      // Short fade in/out - an instant on/off click at the start of this
+      // cue is exactly the kind of thing that can smear a "which ear was
+      // that" judgment right when precision matters most.
+      gain.gain.setValueAtTime(0, when);
+      gain.gain.linearRampToValueAtTime(vol, when + attack);
+      gain.gain.setValueAtTime(vol, holdUntil);
+      gain.gain.linearRampToValueAtTime(0, when + dur);
+      osc.connect(gain);
+      gain.connect(panner);
+      panner.connect(audioCtx.destination);
+      osc.start(when);
+      osc.stop(when + dur);
+      osc.onended = function () {
+        try { osc.disconnect(); } catch (e) {}
+        try { gain.disconnect(); } catch (e) {}
+        try { panner.disconnect(); } catch (e) {}
+      };
+    } catch (e) { /* ignore */ }
+  }
+
+  // ============================================================
+  // Stimulus generation
+  //   sum:        the true sum
+  //   plusminus:  sum ± 1 (confusable, correct response = negative)
+  //   stop:       outside sum±1, drawn from the same digit-class's full
+  //               achievable-sum range (2-9 or 10-18) so it still looks
+  //               like a plausible sum; correct response = none
+  // Relative likelihoods of the three types are user-configurable (see
+  // state.settings.stimulusWeights / pickStimulus below); the numbers in
+  // DEFAULT_SETTINGS.stimulusWeights (34/33/33) reproduce the original
+  // fixed split.
+  //
+  // 1 and 19 are never valid displayValues: pickPlusMinus's canMinus
+  // below excludes sum-1 landing on 1 (only reachable when sum is 2) the
+  // same way canPlus excludes sum+1 landing on 19 (only reachable when
+  // sum is 18), and pickStop's pools already start at 2 and top out at 18.
+  // ============================================================
+  function pickPlusMinus(sum, isDouble) {
+    var canMinus, canPlus;
+    if (isDouble) {
+      canMinus = (sum - 1) >= 10;   // stays double-digit
+      canPlus = (sum + 1) <= 18;    // stays double-digit, and never 19
+    } else {
+      canMinus = (sum - 1) >= 2;    // stays single-digit, positive, and never 1
+      canPlus = (sum + 1) <= 9;     // stays single-digit
+    }
+    var useMinus;
+    if (canMinus && canPlus) useMinus = Math.random() < 0.5;
+    else useMinus = canMinus;
+    return useMinus ? sum - 1 : sum + 1;
+  }
+
+  function pickStop(sum, isDouble) {
+    var lo = isDouble ? 10 : 2;
+    var hi = isDouble ? 18 : 9;
+    var forbidden = [sum - 1, sum, sum + 1];
+    var pool = [];
+    for (var v = lo; v <= hi; v++) {
+      if (forbidden.indexOf(v) === -1) pool.push(v);
+    }
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function pickStimulus(sum) {
+    var isDouble = sum >= 10;
+    var weights = (state.settings && state.settings.stimulusWeights) || DEFAULT_SETTINGS.stimulusWeights;
+    var wSum = weights.sum, wPm = weights.plusminus, wStop = weights.stop;
+    var total = wSum + wPm + wStop;
+    if (total <= 0) { wSum = 34; wPm = 33; wStop = 33; total = 100; } // guard: never let all three be zero
+    var roll = Math.random() * total;
+    if (roll < wSum) {
+      return { type: 'sum', displayValue: sum, correctResponseType: 'positive' };
+    } else if (roll < wSum + wPm) {
+      return { type: 'plusminus', displayValue: pickPlusMinus(sum, isDouble), correctResponseType: 'negative' };
+    } else {
+      return { type: 'stop', displayValue: pickStop(sum, isDouble), correctResponseType: 'none' };
+    }
+  }
+
+  // ============================================================
+  // Trial display helpers
+  // ============================================================
+  function showStimulus(value) { el.numberDisplay.textContent = String(value); }
+  function hideStimulus() {
+    el.numberDisplay.textContent = '';
+    hideTimerId = null;
+    state.hideStimulusAt = null;
+  }
+  function showPlaceholder() { el.numberDisplay.textContent = ''; }
+
+  // Marks a trial's judgment number as actually on screen: sets the
+  // trial's true stimulus-onset time (what reaction time is measured
+  // from) and opens the response window. Shared by the normal trial
+  // timer and by resume-from-pause, so there's one place this happens.
+  function revealStimulus(trial) {
+    if (!trial) return;
+    trial.stimulusShown = true;
+    trial.onsetTime = performance.now();
+    showStimulus(trial.displayValue);
+    showTimerId = null;
+    state.showStimulusAt = null;
+  }
+
+  function updateSpeedIndicator() { el.speedReadout.textContent = state.currentISI + ' ms'; }
+
+  // ============================================================
+  // Scoring + adaptive speed
+  // ============================================================
+  // Effective [floor, ceiling] for adaptive ISI changes: the engine's own
+  // hard limits, optionally tightened by the user's custom bounds (each
+  // independently toggleable, off by default). If the two custom bounds
+  // contradict each other (floor set past ceiling), the floor wins rather
+  // than leaving the algorithm unable to move.
+  function getAdaptiveBounds() {
+    var hardFloor = state.settings.dichoticMode ? DICHOTIC_MIN_ISI : MIN_ISI;
+    var hardCeiling = MAX_ISI;
+    var floor = state.settings.adaptiveFloorEnabled
+      ? clamp(state.settings.adaptiveFloorMs, hardFloor, hardCeiling)
+      : hardFloor;
+    var ceiling = state.settings.adaptiveCeilingEnabled
+      ? clamp(state.settings.adaptiveCeilingMs, hardFloor, hardCeiling)
+      : hardCeiling;
+    if (floor > ceiling) ceiling = floor;
+    return { floor: floor, ceiling: ceiling };
+  }
+
+  function evaluateTrial(trial) {
+    if (!trial || trial.evaluated) return;
+    trial.evaluated = true;
+    if (trial.stimulusType === null) return; // the very first digit has no judgment attached
+
+    var correct;
+    if (trial.correctResponseType === 'none') {
+      correct = (trial.userResponse === null);
+    } else {
+      correct = (trial.userResponse === trial.correctResponseType);
+    }
+    trial.correct = correct;
+    state.results.push(trial);
+
+    if (correct) {
+      state.correctStreak++;
+      state.incorrectStreak = 0;
+      if (state.settings.mode === 'adaptive' && state.correctStreak >= 4) {
+        var bounds = getAdaptiveBounds();
+        state.currentISI = Math.max(bounds.floor, state.currentISI - 100);
+        if (state.currentISI < state.fastestISI) state.fastestISI = state.currentISI;
+        state.correctStreak = 0;
+        updateSpeedIndicator();
+      }
+    } else {
+      state.incorrectStreak++;
+      state.correctStreak = 0;
+      if (state.settings.mode === 'adaptive' && state.incorrectStreak >= 4) {
+        var bounds = getAdaptiveBounds();
+        state.currentISI = Math.min(bounds.ceiling, state.currentISI + 100);
+        if (state.currentISI > state.slowestISI) state.slowestISI = state.currentISI;
+        state.incorrectStreak = 0;
+        updateSpeedIndicator();
+      }
+    }
+
+    // Instant feedback: a beep on incorrect responses only, once per trial, right here at trial end.
+    if (state.settings.instantFeedback) {
+      if (!correct) playBeep(state.settings.beepVolume / 100);
+    }
+  }
+
+  // ============================================================
+  // Trial engine — lookahead audio scheduler.
+  //
+  // Trial content (which digit(s), CCT judgment, dichotic bookkeeping) is
+  // still decided just a little ahead of when it's needed, same idea as
+  // before. What changed is where the ISI cadence itself lives: it's now a
+  // running total of AudioContext time (state.nextTrialAudioTime), not a
+  // setTimeout firing at the moment sound should play. A "ticker" (see
+  // startTicker below) checks at a steady interval whether that time has
+  // come within SCHEDULE_LOOKAHEAD_SEC, and if so, hands the trial's audio
+  // to Web Audio with an exact start time. The browser's audio thread —
+  // not the JS event loop — is what actually fires it, sample-accurate,
+  // regardless of any jitter in exactly when the ticker happened to run.
+  // The visual number is still just a setTimeout off of that same
+  // schedule, since it doesn't need (or benefit from) sample-level
+  // precision the way audio onset does.
+  // ============================================================
+  function schedulerCheck() {
+    if (state.screen !== 'playing' || state.paused || !audioCtx) return;
+    // If we fell far behind (e.g. the tab was frozen/throttled), jump the
+    // schedule forward instead of bursting through every trial that was
+    // technically "due" while nothing was running.
+    if (state.nextTrialAudioTime < audioCtx.currentTime - 2) {
+      state.nextTrialAudioTime = audioCtx.currentTime + SCHEDULE_LOOKAHEAD_SEC;
+    }
+    var guard = 0;
+    while (state.nextTrialAudioTime < audioCtx.currentTime + SCHEDULE_LOOKAHEAD_SEC && guard < 8) {
+      prepareAndScheduleTrial();
+      guard++;
+    }
+  }
+
+  function prepareAndScheduleTrial() {
+    // Step 1: score the trial whose window just closed.
+    evaluateTrial(currentTrial);
+
+    // Step 2: stop here if time's up.
+    if (performance.now() >= state.sessionEndAt) {
+      endSession();
+      return;
+    }
+
+    var isi = state.currentISI;
+    var dichoticOn = state.settings.dichoticMode;
+    // Which pre-rendered file set to play from — see the "Digit audio"
+    // section above for why speed is a file choice, not a rate change.
+    var fast = state.settings.voiceSpeed === 'fast';
+
+    var when = state.nextTrialAudioTime;
+    if (when < audioCtx.currentTime) when = audioCtx.currentTime + 0.01; // safety net, shouldn't normally trigger
+
+    var digit, priorDigit, dichoticMeta = null;
+    var digitOnset = when; // when the digit(s) actually sound - trails `when` on a switch trial (cue beep first)
+
+    if (dichoticOn) {
+      // Two independent ears every trial. Only the currently-targeted
+      // ear's running sequence feeds the CCT sum / ICT judgment below —
+      // the other keeps playing as a distractor but never enters the
+      // arithmetic.
+      var digitLeft = 1 + Math.floor(Math.random() * 9);
+      var digitRight = 1 + Math.floor(Math.random() * 9);
+
+      var isSwitchTrial = state.dichotic.trialsUntilSwitch <= 0;
+      if (isSwitchTrial) {
+        state.dichotic.targetEar = state.dichotic.targetEar === 'L' ? 'R' : 'L';
+        // The newly-attended ear starts fresh: the user wasn't tracking it
+        // while it was the distractor, so its last digit isn't usable for
+        // a sum yet — same as prevDigit being null at session start.
+        state.dichotic.prevTargetDigit = null;
+        state.dichotic.trialsUntilSwitch = DICHOTIC_SWITCH_MIN_TRIALS +
+          Math.floor(Math.random() * (DICHOTIC_SWITCH_MAX_TRIALS - DICHOTIC_SWITCH_MIN_TRIALS + 1));
+      }
+      state.dichotic.trialsUntilSwitch--;
+
+      var targetEar = state.dichotic.targetEar;
+      digit = (targetEar === 'L') ? digitLeft : digitRight;
+      priorDigit = state.dichotic.prevTargetDigit;
+      dichoticMeta = { leftDigit: digitLeft, rightDigit: digitRight, targetEar: targetEar, isSwitchTrial: isSwitchTrial };
+
+      if (isSwitchTrial) {
+        scheduleSwitchCue(when, targetEar);
+        digitOnset = when + DICHOTIC_TONE_DURATION_SEC + DICHOTIC_CUE_GAP_SEC;
+      }
+      // Same `digitOnset` for both — this is what true dichotic playback
+      // actually needs: both ears starting on the exact same sample.
+      scheduleDigitBuffer(digitLeft, digitOnset, -1, 1, fast ? digitBuffersA_fast : digitBuffersA);   // left ear: male voice
+      scheduleDigitBuffer(digitRight, digitOnset, 1, 1, fast ? digitBuffersB_fast : digitBuffersB);  // right ear: female voice
+
+      state.dichotic.prevTargetDigit = digit;
+    } else {
+      digit = 1 + Math.floor(Math.random() * 9);
+      priorDigit = state.prevDigit;
+      // Non-dichotic mode speaks in whichever voice the player picked.
+      var nonDichoticFemale = state.settings.voice === 'female';
+      var nonDichoticBuffers = fast
+        ? (nonDichoticFemale ? digitBuffersB_fast : digitBuffersA_fast)
+        : (nonDichoticFemale ? digitBuffersB : digitBuffersA);
+      scheduleDigitBuffer(digit, digitOnset, null, 1, nonDichoticBuffers);
+      state.prevDigit = digit;
+    }
+
+    var trial = {
+      isi: isi,
+      digit: digit,
+      prevDigit: priorDigit,
+      stimulusType: null,
+      displayValue: null,
+      correctResponseType: null,
+      sum: null,
+      userResponse: null,
+      hasResponded: false,
+      stimulusShown: false,
+      correct: null,
+      evaluated: false,
+      onsetTime: null,
+      rt: null,
+      dichotic: dichoticMeta
+    };
+
+    // Defensively clear any stale show/hide timers before arming this trial's.
+    clearTimeout(showTimerId);
+    clearTimeout(hideTimerId);
+    showTimerId = null;
+    hideTimerId = null;
+
+    if (priorDigit !== null) {
+      var sum = priorDigit + digit;
+      var stim = pickStimulus(sum);
+      trial.stimulusType = stim.type;
+      trial.displayValue = stim.displayValue;
+      trial.correctResponseType = stim.correctResponseType;
+      trial.sum = sum;
+
+      var msUntilDigitOnset = Math.max(0, (digitOnset - audioCtx.currentTime) * 1000);
+      state.showStimulusAt = performance.now() + msUntilDigitOnset + isi * SOA_FRACTION;
+      state.hideStimulusAt = performance.now() + msUntilDigitOnset + isi * (SOA_FRACTION + VISIBLE_FRACTION);
+
+      showTimerId = setTimeout(function () { revealStimulus(trial); },
+        Math.max(0, state.showStimulusAt - performance.now()));
+      hideTimerId = setTimeout(hideStimulus,
+        Math.max(0, state.hideStimulusAt - performance.now()));
+    } else {
+      showPlaceholder();
+    }
+
+    currentTrial = trial;
+
+    // Advance the drift-free accumulator for the next trial slot. Anchored
+    // to `when` (the slot boundary), not `digitOnset`, so a switch trial's
+    // cue-beep preamble doesn't push every later trial's timing back — it
+    // only nudges that one trial's own digits slightly later within its
+    // own slot.
+    state.nextTrialAudioTime = when + isi / 1000;
+  }
+
+  // ============================================================
+  // Scheduler ticker — a tiny Worker when one can be created (workers keep
+  // ticking at full rate even when the browser tab is backgrounded, unlike
+  // main-thread timers, which most browsers throttle hard to save power).
+  // Falls back to a plain setInterval if a Worker can't be created for any
+  // reason, which still works correctly as long as the tab stays focused.
+  // ============================================================
+  function startTicker(onTick) {
+    stopTicker();
+    try {
+      var code = 'setInterval(function () { postMessage(1); }, ' + SCHEDULER_TICK_MS + ');';
+      var blobUrl = URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
+      var worker = new Worker(blobUrl);
+      URL.revokeObjectURL(blobUrl);
+      worker.onmessage = onTick;
+      worker.onerror = function () {
+        stopTicker();
+        ticker = { fallbackId: setInterval(onTick, SCHEDULER_TICK_MS) };
+      };
+      ticker = { worker: worker };
+    } catch (e) {
+      ticker = { fallbackId: setInterval(onTick, SCHEDULER_TICK_MS) };
+    }
+  }
+
+  function stopTicker() {
+    if (!ticker) return;
+    if (ticker.worker) { try { ticker.worker.terminate(); } catch (e) {} }
+    if (ticker.fallbackId) clearInterval(ticker.fallbackId);
+    ticker = null;
+  }
+
+  // ============================================================
+  // Response handling
+  // ============================================================
+  function handleResponse(type) {
+    if (state.screen !== 'playing' || state.paused) return;
+    if (!currentTrial || currentTrial.stimulusType === null || currentTrial.hasResponded) return;
+    if (!currentTrial.stimulusShown) return; // ignore presses before the number has actually appeared
+    currentTrial.hasResponded = true;
+    currentTrial.userResponse = type;
+    currentTrial.rt = performance.now() - currentTrial.onsetTime;
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (state.screen !== 'playing' || state.paused) return;
+    if (e.repeat) return;
+    if (e.key === 'Escape') { e.preventDefault(); pauseSession(); return; }
+    var positiveKey = state.settings.swapKeys ? 'ArrowRight' : 'ArrowLeft';
+    var negativeKey = state.settings.swapKeys ? 'ArrowLeft' : 'ArrowRight';
+    if (e.key === positiveKey) { e.preventDefault(); handleResponse('positive'); }
+    else if (e.key === negativeKey) { e.preventDefault(); handleResponse('negative'); }
+  });
+
+  // ============================================================
+  // Countdown display
+  // ============================================================
+  function updateCountdownDisplay() {
+    var remainingMs = Math.max(0, state.sessionEndAt - performance.now());
+    var totalSec = Math.ceil(remainingMs / 1000);
+    var mm = String(Math.floor(totalSec / 60)).padStart(2, '0');
+    var ss = String(totalSec % 60).padStart(2, '0');
+    el.timerDisplay.textContent = mm + ':' + ss;
+  }
+
+  // ============================================================
+  // Session lifecycle
+  // ============================================================
+  function applyKeyHintLabels() {
+    var swapped = state.settings.swapKeys;
+    el.hintLeft.textContent = swapped ? '← No match' : '← Match';
+    el.hintRight.textContent = swapped ? 'Match →' : 'No match →';
+  }
+
+  function applyMobileModeVisibility() {
+    el.mobileButtons.classList.toggle('hidden', !state.settings.mobileMode);
+    if (state.settings.swapKeys) {
+      el.mobilePositiveBtn.style.order = '2';
+      el.mobileNegativeBtn.style.order = '1';
+    } else {
+      el.mobilePositiveBtn.style.order = '1';
+      el.mobileNegativeBtn.style.order = '2';
+    }
+  }
+
+  function showScreen(name) {
+    state.screen = name;
+    el.menuScreen.classList.toggle('hidden', name !== 'menu');
+    el.playScreen.classList.toggle('hidden', name !== 'playing');
+    el.reportScreen.classList.toggle('hidden', name !== 'report');
+    el.historyScreen.classList.toggle('hidden', name !== 'history');
+  }
+
+  function startSession() {
+    ensureAudioContext();
+    decodeAllDigitAudio(); // no-op if already decoded/decoding
+
+    stopTicker();
+    clearTimeout(showTimerId);
+    clearTimeout(hideTimerId);
+    clearInterval(countdownIntervalId);
+    stopAllPendingAudio();
+
+    state.currentISI = state.settings.dichoticMode
+      ? Math.max(state.settings.startingSpeedMs, DICHOTIC_MIN_ISI)
+      : state.settings.startingSpeedMs;
+    if (state.settings.mode === 'adaptive') {
+      var startBounds = getAdaptiveBounds();
+      state.currentISI = clamp(state.currentISI, startBounds.floor, startBounds.ceiling);
+    }
+    // The starting speed counts as both the fastest and slowest reached
+    // so far — evaluateTrial narrows these as adaptive adjustments happen.
+    state.fastestISI = state.currentISI;
+    state.slowestISI = state.currentISI;
+    state.correctStreak = 0;
+    state.incorrectStreak = 0;
+    state.prevDigit = null;
+    state.results = [];
+    state.paused = false;
+    state.showStimulusAt = null;
+    state.hideStimulusAt = null;
+    currentTrial = null;
+
+    // Randomize which ear starts as the target, and force trial 1 to play
+    // the orienting cue beep (trialsUntilSwitch <= 0 triggers it) so the
+    // user isn't left guessing which ear to attend to from the start.
+    state.dichotic.targetEar = Math.random() < 0.5 ? 'L' : 'R';
+    state.dichotic.prevTargetDigit = null;
+    state.dichotic.trialsUntilSwitch = 0;
+
+    el.pauseOverlay.classList.add('hidden');
+
+    state.sessionEndAt = performance.now() + state.settings.durationSec * 1000;
+
+    applyKeyHintLabels();
+    applyMobileModeVisibility();
+    updateSpeedIndicator();
+
+    showScreen('playing');
+    updateCountdownDisplay();
+    countdownIntervalId = setInterval(updateCountdownDisplay, 250);
+
+    digitAudioReady.then(function () {
+      if (state.screen !== 'playing') return; // left/ended before decoding finished
+      state.nextTrialAudioTime = audioCtx.currentTime + 0.05;
+      schedulerCheck();
+      startTicker(schedulerCheck);
+    });
+  }
+
+  function pauseSession() {
+    if (state.screen !== 'playing' || state.paused) return;
+    state.paused = true;
+    state.pausedAt = performance.now();
+    clearTimeout(showTimerId);
+    clearTimeout(hideTimerId);
+    clearInterval(countdownIntervalId);
+    stopAllPendingAudio();
+    if (audioCtx) { try { audioCtx.suspend(); } catch (e) {} }
+    el.pauseOverlay.classList.remove('hidden');
+  }
+
+  function resumeSession() {
+    if (!state.paused) return;
+    var pauseDelta = performance.now() - state.pausedAt;
+    if (state.showStimulusAt) state.showStimulusAt += pauseDelta;
+    if (state.hideStimulusAt) state.hideStimulusAt += pauseDelta;
+    state.sessionEndAt += pauseDelta;
+    state.paused = false;
+
+    if (audioCtx) { try { audioCtx.resume(); } catch (e) {} }
+    // Restart the trial cadence cleanly from "now" rather than trying to
+    // preserve exact phase across the pause.
+    state.nextTrialAudioTime = (audioCtx ? audioCtx.currentTime : 0) + 0.05;
+
+    if (state.showStimulusAt) {
+      var trialToReveal = currentTrial;
+      showTimerId = setTimeout(function () { revealStimulus(trialToReveal); },
+        Math.max(0, state.showStimulusAt - performance.now()));
+    }
+    if (state.hideStimulusAt) {
+      hideTimerId = setTimeout(hideStimulus, Math.max(0, state.hideStimulusAt - performance.now()));
+    }
+    countdownIntervalId = setInterval(updateCountdownDisplay, 250);
+    el.pauseOverlay.classList.add('hidden');
+  }
+
+  function endSession() {
+    evaluateTrial(currentTrial); // make sure the last in-flight trial is scored
+    stopTicker();
+    clearTimeout(showTimerId);
+    clearTimeout(hideTimerId);
+    clearInterval(countdownIntervalId);
+    stopAllPendingAudio();
+    el.pauseOverlay.classList.add('hidden');
+    showReport();
+    showScreen('report');
+  }
+
+  // ============================================================
+  // Report
+  // ============================================================
+  // Computes the full set of end-of-session figures once, so the same
+  // object can both render the report screen and be saved verbatim as
+  // this session's history record.
+  function computeSessionStats() {
+    var results = state.results;
+    var total = results.length;
+    var correctCount = results.filter(function (r) { return r.correct; }).length;
+    var overallAcc = total ? (correctCount / total * 100) : 0;
+
+    var byType = {};
+    ['sum', 'plusminus', 'stop'].forEach(function (type) {
+      var trials = results.filter(function (r) { return r.stimulusType === type; });
+      var c = trials.filter(function (r) { return r.correct; }).length;
+      byType[type] = { correct: c, total: trials.length };
+    });
+
+    var responded = results.filter(function (r) { return r.rt !== null; });
+    var avgRt = responded.length ? (responded.reduce(function (s, r) { return s + r.rt; }, 0) / responded.length) : null;
+
+    var misses = results.filter(function (r) { return r.correctResponseType !== 'none' && r.userResponse === null; }).length;
+    var falseAlarms = results.filter(function (r) { return r.correctResponseType === 'none' && r.userResponse !== null; }).length;
+
+    return {
+      timestamp: Date.now(),
+      mode: state.settings.mode,
+      dichoticMode: state.settings.dichoticMode,
+      durationSec: state.settings.durationSec,
+      finalSpeedMs: state.currentISI,
+      fastestSpeedMs: state.fastestISI,
+      slowestSpeedMs: state.slowestISI,
+      totalTrials: total,
+      overallAccuracy: overallAcc,
+      byType: byType,
+      avgRtMs: avgRt,
+      misses: misses,
+      falseAlarms: falseAlarms
+    };
+  }
+
+  function showReport() {
+    var stats = computeSessionStats();
+
+    el.overallAccuracyValue.textContent = stats.overallAccuracy.toFixed(1) + '%';
+
+    var typeEls = { sum: el.sumAccuracy, plusminus: el.pmAccuracy, stop: el.stopAccuracy };
+    ['sum', 'plusminus', 'stop'].forEach(function (type) {
+      var t = stats.byType[type];
+      var acc = t.total ? (t.correct / t.total * 100) : 0;
+      typeEls[type].textContent = t.total ? (acc.toFixed(0) + '% (' + t.correct + '/' + t.total + ')') : '–';
+    });
+
+    el.avgRt.textContent = stats.avgRtMs !== null ? Math.round(stats.avgRtMs) + ' ms' : '–';
+    el.missesCount.textContent = stats.misses;
+    el.falseAlarmsCount.textContent = stats.falseAlarms;
+    el.finalSpeed.textContent = stats.finalSpeedMs + ' ms';
+    el.totalTrials.textContent = stats.totalTrials;
+
+    // Fastest/slowest only mean anything in adaptive mode (fixed mode
+    // never moves off the starting speed), so the two cards stay hidden
+    // outside of it rather than showing a pair of numbers equal to the
+    // fixed speed.
+    var isAdaptive = stats.mode === 'adaptive';
+    el.fastestSpeedCard.classList.toggle('hidden', !isAdaptive);
+    el.slowestSpeedCard.classList.toggle('hidden', !isAdaptive);
+    if (isAdaptive) {
+      el.fastestSpeed.textContent = stats.fastestSpeedMs + ' ms';
+      el.slowestSpeed.textContent = stats.slowestSpeedMs + ' ms';
+    }
+
+    appendHistoryRecord(stats);
+  }
+
+  // ============================================================
+  // History screen
+  // ============================================================
+  function formatHistoryDate(ts) {
+    try { return new Date(ts).toLocaleString(); } catch (e) { return ''; }
+  }
+
+  function historyStatBlock(value, label) {
+    var wrap = document.createElement('div');
+    wrap.className = 'history-stat';
+    var num = document.createElement('div');
+    num.className = 'num mono';
+    num.textContent = value;
+    var lbl = document.createElement('div');
+    lbl.className = 'lbl';
+    lbl.textContent = label;
+    wrap.appendChild(num);
+    wrap.appendChild(lbl);
+    return wrap;
+  }
+
+  function renderHistoryList(list) {
+    el.historyList.innerHTML = '';
+    var sorted = list.slice().sort(function (a, b) { return b.timestamp - a.timestamp; });
+
+    el.historyEmpty.classList.toggle('hidden', sorted.length > 0);
+    el.historyList.classList.toggle('hidden', sorted.length === 0);
+
+    sorted.forEach(function (rec) {
+      var item = document.createElement('div');
+      item.className = 'history-item';
+
+      var main = document.createElement('div');
+      main.className = 'history-item-main';
+
+      var dateEl = document.createElement('div');
+      dateEl.className = 'history-item-date';
+      dateEl.textContent = formatHistoryDate(rec.timestamp);
+
+      var tagsEl = document.createElement('div');
+      tagsEl.className = 'history-item-tags';
+      var tagParts = [rec.mode === 'fixed' ? 'Fixed' : 'Adaptive'];
+      if (rec.dichoticMode) tagParts.push('Dichotic');
+      tagParts.push((Math.round(rec.durationSec / 6) / 10) + ' min');
+      tagsEl.textContent = tagParts.join(' · ');
+
+      main.appendChild(dateEl);
+      main.appendChild(tagsEl);
+
+      var stats = document.createElement('div');
+      stats.className = 'history-item-stats';
+      stats.appendChild(historyStatBlock(Math.round(rec.overallAccuracy) + '%', 'Accuracy'));
+      stats.appendChild(historyStatBlock(rec.finalSpeedMs + ' ms', 'Speed'));
+      stats.appendChild(historyStatBlock(String(rec.totalTrials), 'Trials'));
+
+      item.appendChild(main);
+      item.appendChild(stats);
+      el.historyList.appendChild(item);
+    });
+  }
+
+  // ============================================================
+  // Menu wiring
+  // ============================================================
+  function setSegmented(container, value) {
+    var btns = container.querySelectorAll('.seg-btn');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('active', btns[i].getAttribute('data-value') === value);
+    }
+  }
+
+  function updateHintKeyLabels() {
+    var swapped = state.settings.swapKeys;
+    el.hintMatchKey.textContent = swapped ? 'Right' : 'Left';
+    el.hintNoMatchKey.textContent = swapped ? 'Left' : 'Right';
+  }
+
+  // The beep volume slider now drives two things: the optional incorrect-
+  // response feedback beep, and (when dichotic mode is on) the switch cue
+  // tone, which is functionally required rather than optional — so the
+  // field stays visible whenever either feature needs it.
+  function applyBeepVolumeVisibility() {
+    el.beepVolumeField.classList.toggle('hidden', !state.settings.instantFeedback && !state.settings.dichoticMode);
+  }
+
+  function applyDichoticInstructionsVisibility() {
+    el.dichoticInstructions.classList.toggle('hidden', !state.settings.dichoticMode);
+  }
+
+  // Dichotic mode always speaks both voices at once (male left, female
+  // right) — the male/female picker only means something outside it.
+  function applyVoiceSelectVisibility() {
+    el.voiceSelectField.classList.toggle('hidden', state.settings.dichoticMode);
+  }
+
+  // The floor/ceiling field only means anything in adaptive mode - fixed
+  // mode never changes speed, so there's nothing for a limit to bound.
+  function applyAdaptiveBoundsVisibility() {
+    el.adaptiveBoundsField.classList.toggle('hidden', state.settings.mode !== 'adaptive');
+  }
+
+  function applyBoundInputVisibility() {
+    el.floorInputWrap.classList.toggle('hidden', !state.settings.adaptiveFloorEnabled);
+    el.ceilingInputWrap.classList.toggle('hidden', !state.settings.adaptiveCeilingEnabled);
+  }
+
+  // Readouts show each slider's *normalized* share (what pickStimulus
+  // will actually use), not the raw 0-100 slider value, since the three
+  // sliders don't need to add up to 100 themselves.
+  function updateWeightReadouts() {
+    var w = state.settings.stimulusWeights;
+    var total = w.sum + w.plusminus + w.stop;
+    if (total <= 0) total = 1; // display-only guard; sanitizeStimulusWeights keeps stored settings from ever reaching this
+    el.weightSumValue.textContent = Math.round(w.sum / total * 100) + '%';
+    el.weightPlusminusValue.textContent = Math.round(w.plusminus / total * 100) + '%';
+    el.weightStopValue.textContent = Math.round(w.stop / total * 100) + '%';
+  }
+
+  function applyZenModeClass() {
+    el.app.classList.toggle('zen-mode', state.settings.zenMode);
+  }
+
+  function populateMenuFromSettings() {
+    setSegmented(el.modeToggle, state.settings.mode);
+    el.speedSlider.value = state.settings.startingSpeedMs;
+    el.speedValue.textContent = state.settings.startingSpeedMs + ' ms';
+
+    el.floorToggle.checked = state.settings.adaptiveFloorEnabled;
+    el.floorValue.value = state.settings.adaptiveFloorMs;
+    el.ceilingToggle.checked = state.settings.adaptiveCeilingEnabled;
+    el.ceilingValue.value = state.settings.adaptiveCeilingMs;
+    applyAdaptiveBoundsVisibility();
+    applyBoundInputVisibility();
+
+    var presets = ['60', '120', '180', '300', '600'];
+    var durStr = String(state.settings.durationSec);
+    if (presets.indexOf(durStr) !== -1) {
+      el.durationSelect.value = durStr;
+      el.durationCustom.classList.add('hidden');
+    } else {
+      el.durationSelect.value = 'custom';
+      el.durationCustom.classList.remove('hidden');
+      el.durationCustom.value = state.settings.durationSec / 60;
+    }
+
+    el.weightSum.value = state.settings.stimulusWeights.sum;
+    el.weightPlusminus.value = state.settings.stimulusWeights.plusminus;
+    el.weightStop.value = state.settings.stimulusWeights.stop;
+    updateWeightReadouts();
+
+    setSegmented(el.keysToggle, String(state.settings.swapKeys));
+    el.feedbackToggle.checked = state.settings.instantFeedback;
+    el.beepVolume.value = state.settings.beepVolume;
+    el.beepValue.textContent = state.settings.beepVolume + '%';
+    setSegmented(el.voiceToggle, state.settings.voiceSpeed);
+    setSegmented(el.voiceSelectToggle, state.settings.voice);
+    el.dichoticToggle.checked = state.settings.dichoticMode;
+    applyBeepVolumeVisibility();
+    applyDichoticInstructionsVisibility();
+    applyVoiceSelectVisibility();
+    el.mobileToggle.checked = state.settings.mobileMode;
+    el.zenToggle.checked = state.settings.zenMode;
+    applyZenModeClass();
+
+    updateHintKeyLabels();
+  }
+
+  function persistSettings() { saveSettings(state.settings); }
+
+  function wireMenu() {
+    el.modeToggle.addEventListener('click', function (e) {
+      var btn = e.target.closest('.seg-btn');
+      if (!btn) return;
+      state.settings.mode = btn.getAttribute('data-value');
+      setSegmented(el.modeToggle, state.settings.mode);
+      applyAdaptiveBoundsVisibility();
+      persistSettings();
+    });
+
+    el.speedSlider.addEventListener('input', function () {
+      state.settings.startingSpeedMs = parseInt(el.speedSlider.value, 10);
+      el.speedValue.textContent = state.settings.startingSpeedMs + ' ms';
+      persistSettings();
+    });
+
+    el.floorToggle.addEventListener('change', function () {
+      state.settings.adaptiveFloorEnabled = el.floorToggle.checked;
+      applyBoundInputVisibility();
+      persistSettings();
+    });
+
+    el.floorValue.addEventListener('input', function () {
+      var v = parseInt(el.floorValue.value, 10);
+      if (isNaN(v)) return;
+      state.settings.adaptiveFloorMs = clamp(v, 200, 5000);
+      // Keep the pair sane in the UI too, not just under the hood.
+      if (state.settings.adaptiveCeilingEnabled && state.settings.adaptiveFloorMs > state.settings.adaptiveCeilingMs) {
+        state.settings.adaptiveCeilingMs = state.settings.adaptiveFloorMs;
+        el.ceilingValue.value = state.settings.adaptiveCeilingMs;
+      }
+      persistSettings();
+    });
+
+    el.ceilingToggle.addEventListener('change', function () {
+      state.settings.adaptiveCeilingEnabled = el.ceilingToggle.checked;
+      applyBoundInputVisibility();
+      persistSettings();
+    });
+
+    el.ceilingValue.addEventListener('input', function () {
+      var v = parseInt(el.ceilingValue.value, 10);
+      if (isNaN(v)) return;
+      state.settings.adaptiveCeilingMs = clamp(v, 200, 5000);
+      if (state.settings.adaptiveFloorEnabled && state.settings.adaptiveCeilingMs < state.settings.adaptiveFloorMs) {
+        state.settings.adaptiveFloorMs = state.settings.adaptiveCeilingMs;
+        el.floorValue.value = state.settings.adaptiveFloorMs;
+      }
+      persistSettings();
+    });
+
+    el.durationSelect.addEventListener('change', function () {
+      if (el.durationSelect.value === 'custom') {
+        el.durationCustom.classList.remove('hidden');
+        var mins = parseFloat(el.durationCustom.value);
+        if (isNaN(mins) || mins <= 0) mins = 2;
+        state.settings.durationSec = Math.round(mins * 60);
+      } else {
+        el.durationCustom.classList.add('hidden');
+        state.settings.durationSec = parseInt(el.durationSelect.value, 10);
+      }
+      persistSettings();
+    });
+
+    el.durationCustom.addEventListener('input', function () {
+      var mins = parseFloat(el.durationCustom.value);
+      if (!isNaN(mins) && mins > 0) {
+        state.settings.durationSec = Math.round(mins * 60);
+        persistSettings();
+      }
+    });
+
+    el.keysToggle.addEventListener('click', function (e) {
+      var btn = e.target.closest('.seg-btn');
+      if (!btn) return;
+      state.settings.swapKeys = btn.getAttribute('data-value') === 'true';
+      setSegmented(el.keysToggle, String(state.settings.swapKeys));
+      updateHintKeyLabels();
+      persistSettings();
+    });
+
+    el.feedbackToggle.addEventListener('change', function () {
+      state.settings.instantFeedback = el.feedbackToggle.checked;
+      applyBeepVolumeVisibility();
+      persistSettings();
+    });
+
+    el.beepVolume.addEventListener('input', function () {
+      state.settings.beepVolume = parseInt(el.beepVolume.value, 10);
+      el.beepValue.textContent = state.settings.beepVolume + '%';
+      persistSettings();
+    });
+
+    el.testBeepBtn.addEventListener('click', function () {
+      ensureAudioContext();
+      playBeep(state.settings.beepVolume / 100);
+    });
+
+    el.voiceToggle.addEventListener('click', function (e) {
+      var btn = e.target.closest('.seg-btn');
+      if (!btn) return;
+      state.settings.voiceSpeed = btn.getAttribute('data-value');
+      setSegmented(el.voiceToggle, state.settings.voiceSpeed);
+      persistSettings();
+    });
+
+    el.voiceSelectToggle.addEventListener('click', function (e) {
+      var btn = e.target.closest('.seg-btn');
+      if (!btn) return;
+      state.settings.voice = btn.getAttribute('data-value');
+      setSegmented(el.voiceSelectToggle, state.settings.voice);
+      persistSettings();
+    });
+
+    el.dichoticToggle.addEventListener('change', function () {
+      state.settings.dichoticMode = el.dichoticToggle.checked;
+      applyBeepVolumeVisibility();
+      applyDichoticInstructionsVisibility();
+      applyVoiceSelectVisibility();
+      persistSettings();
+    });
+
+    el.mobileToggle.addEventListener('change', function () {
+      state.settings.mobileMode = el.mobileToggle.checked;
+      persistSettings();
+    });
+
+    el.weightSum.addEventListener('input', function () {
+      state.settings.stimulusWeights.sum = parseInt(el.weightSum.value, 10);
+      updateWeightReadouts();
+      persistSettings();
+    });
+    el.weightPlusminus.addEventListener('input', function () {
+      state.settings.stimulusWeights.plusminus = parseInt(el.weightPlusminus.value, 10);
+      updateWeightReadouts();
+      persistSettings();
+    });
+    el.weightStop.addEventListener('input', function () {
+      state.settings.stimulusWeights.stop = parseInt(el.weightStop.value, 10);
+      updateWeightReadouts();
+      persistSettings();
+    });
+    el.weightsResetBtn.addEventListener('click', function () {
+      state.settings.stimulusWeights = {
+        sum: DEFAULT_SETTINGS.stimulusWeights.sum,
+        plusminus: DEFAULT_SETTINGS.stimulusWeights.plusminus,
+        stop: DEFAULT_SETTINGS.stimulusWeights.stop
+      };
+      el.weightSum.value = state.settings.stimulusWeights.sum;
+      el.weightPlusminus.value = state.settings.stimulusWeights.plusminus;
+      el.weightStop.value = state.settings.stimulusWeights.stop;
+      updateWeightReadouts();
+      persistSettings();
+    });
+
+    el.zenToggle.addEventListener('change', function () {
+      state.settings.zenMode = el.zenToggle.checked;
+      applyZenModeClass();
+      persistSettings();
+    });
+
+    el.startBtn.addEventListener('click', startSession);
+  }
+
+  function wirePlay() {
+    el.pauseBtn.addEventListener('click', pauseSession);
+    el.resumeBtn.addEventListener('click', resumeSession);
+    el.endBtn.addEventListener('click', function () {
+      if (confirm('End this session early?')) endSession();
+    });
+    el.pauseEndBtn.addEventListener('click', function () {
+      if (confirm('End this session early?')) endSession();
+    });
+    el.mobilePositiveBtn.addEventListener('click', function () { handleResponse('positive'); });
+    el.mobileNegativeBtn.addEventListener('click', function () { handleResponse('negative'); });
+    el.zenPauseBtn.addEventListener('click', pauseSession);
+  }
+
+  function wireReport() {
+    el.backToMenuBtn.addEventListener('click', function () { showScreen('menu'); });
+  }
+
+  function wireHistory() {
+    el.historyBtn.addEventListener('click', function () {
+      loadHistory().then(function (list) {
+        renderHistoryList(list);
+        showScreen('history');
+      });
+    });
+    el.historyBackBtn.addEventListener('click', function () { showScreen('menu'); });
+    el.clearHistoryBtn.addEventListener('click', function () {
+      if (!confirm('Clear all saved session history? This can\'t be undone.')) return;
+      saveHistory([]).then(function () { renderHistoryList([]); });
+    });
+  }
+
+  // ============================================================
+  // Init
+  // ============================================================
+  function cacheEls() {
+    el.app = q('app');
+    el.menuScreen = q('menu-screen');
+    el.playScreen = q('play-screen');
+    el.reportScreen = q('report-screen');
+    el.historyScreen = q('history-screen');
+
+    el.modeToggle = document.querySelector('[data-group="mode"]');
+    el.speedSlider = q('speed-slider');
+    el.speedValue = q('speed-value');
+    el.adaptiveBoundsField = q('adaptive-bounds-field');
+    el.floorToggle = q('floor-toggle');
+    el.floorValue = q('floor-value');
+    el.floorInputWrap = q('floor-input-wrap');
+    el.ceilingToggle = q('ceiling-toggle');
+    el.ceilingValue = q('ceiling-value');
+    el.ceilingInputWrap = q('ceiling-input-wrap');
+    el.durationSelect = q('duration-select');
+    el.durationCustom = q('duration-custom');
+    el.weightSum = q('weight-sum');
+    el.weightPlusminus = q('weight-plusminus');
+    el.weightStop = q('weight-stop');
+    el.weightSumValue = q('weight-sum-value');
+    el.weightPlusminusValue = q('weight-plusminus-value');
+    el.weightStopValue = q('weight-stop-value');
+    el.weightsResetBtn = q('weights-reset-btn');
+    el.keysToggle = document.querySelector('[data-group="keys"]');
+    el.feedbackToggle = q('feedback-toggle');
+    el.beepVolumeField = q('beep-volume-field');
+    el.beepVolume = q('beep-volume');
+    el.beepValue = q('beep-value');
+    el.testBeepBtn = q('test-beep-btn');
+    el.voiceToggle = document.querySelector('[data-group="voice"]');
+    el.voiceSelectField = q('voice-select-field');
+    el.voiceSelectToggle = document.querySelector('[data-group="voice-select"]');
+    el.dichoticToggle = q('dichotic-toggle');
+    el.dichoticInstructions = q('dichotic-instructions');
+    el.mobileToggle = q('mobile-toggle');
+    el.zenToggle = q('zen-toggle');
+    el.startBtn = q('start-btn');
+    el.historyBtn = q('history-btn');
+    el.hintMatchKey = q('hint-match-key');
+    el.hintNoMatchKey = q('hint-nomatch-key');
+
+    el.timerDisplay = q('timer-display');
+    el.speedReadout = q('speed-readout');
+    el.pauseBtn = q('pause-btn');
+    el.endBtn = q('end-btn');
+    el.numberDisplay = q('number-display');
+    el.hintLeft = q('hint-left');
+    el.hintRight = q('hint-right');
+    el.mobileButtons = q('mobile-buttons');
+    el.mobileNegativeBtn = q('mobile-negative-btn');
+    el.mobilePositiveBtn = q('mobile-positive-btn');
+    el.pauseOverlay = q('pause-overlay');
+    el.resumeBtn = q('resume-btn');
+    el.pauseEndBtn = q('pause-end-btn');
+    el.zenPauseBtn = q('zen-pause-btn');
+
+    el.overallAccuracyValue = q('overall-accuracy-value');
+    el.sumAccuracy = q('sum-accuracy');
+    el.pmAccuracy = q('pm-accuracy');
+    el.stopAccuracy = q('stop-accuracy');
+    el.avgRt = q('avg-rt');
+    el.missesCount = q('misses-count');
+    el.falseAlarmsCount = q('false-alarms-count');
+    el.finalSpeed = q('final-speed');
+    el.fastestSpeed = q('fastest-speed');
+    el.fastestSpeedCard = q('fastest-speed-card');
+    el.slowestSpeed = q('slowest-speed');
+    el.slowestSpeedCard = q('slowest-speed-card');
+    el.totalTrials = q('total-trials');
+    el.backToMenuBtn = q('back-to-menu-btn');
+
+    el.historyList = q('history-list');
+    el.historyEmpty = q('history-empty');
+    el.clearHistoryBtn = q('clear-history-btn');
+    el.historyBackBtn = q('history-back-btn');
+  }
+
+  function init() {
+    cacheEls();
+    wireMenu();
+    wirePlay();
+    wireReport();
+    wireHistory();
+    decodeAllDigitAudio(); // start decoding right away so it's ready well before "Start session" is clicked
+
+    loadSettings().then(function (settings) {
+      state.settings = settings;
+      populateMenuFromSettings();
+      showScreen('menu');
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>
