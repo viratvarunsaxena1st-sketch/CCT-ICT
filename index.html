@@ -515,7 +515,7 @@
 
       <div class="field">
         <label>Starting speed <span class="readout" id="speed-value"></span></label>
-        <input type="range" id="speed-slider" min="200" max="3000" step="100">
+        <input type="range" id="speed-slider" min="200" max="10000" step="100">
       </div>
 
       <div class="field" id="adaptive-bounds-field">
@@ -525,14 +525,14 @@
             <label class="switch"><input type="checkbox" id="floor-toggle"><span class="switch-track"></span></label>
             <span class="bound-label">Floor <span class="dim">— won't go faster than</span></span>
             <span class="bound-input-wrap hidden" id="floor-input-wrap">
-              <input type="number" id="floor-value" min="200" max="5000" step="100"><span class="dim">ms</span>
+              <input type="number" id="floor-value" min="200" max="10000" step="100"><span class="dim">ms</span>
             </span>
           </div>
           <div class="bound-row">
             <label class="switch"><input type="checkbox" id="ceiling-toggle"><span class="switch-track"></span></label>
             <span class="bound-label">Ceiling <span class="dim">— won't go slower than</span></span>
             <span class="bound-input-wrap hidden" id="ceiling-input-wrap">
-              <input type="number" id="ceiling-value" min="200" max="5000" step="100"><span class="dim">ms</span>
+              <input type="number" id="ceiling-value" min="200" max="10000" step="100"><span class="dim">ms</span>
             </span>
           </div>
         </div>
@@ -767,7 +767,7 @@
   // Constants
   // ============================================================
   var MIN_ISI = 200;
-  var MAX_ISI = 5000;
+  var MAX_ISI = 10000;
   var MIN_NBACK_LEVEL = 2;
   var MAX_NBACK_LEVEL = 10;
   var STORAGE_KEY = 'apasat_settings_v1';
@@ -982,7 +982,7 @@
     var nBackLevel = parseInt(s.nBackLevel, 10);
     return {
       mode: s.mode === 'fixed' ? 'fixed' : 'adaptive',
-      startingSpeedMs: clamp(isNaN(speed) ? DEFAULT_SETTINGS.startingSpeedMs : speed, 200, 3000),
+      startingSpeedMs: clamp(isNaN(speed) ? DEFAULT_SETTINGS.startingSpeedMs : speed, 200, 10000),
       durationSec: clamp(isNaN(dur) ? DEFAULT_SETTINGS.durationSec : dur, 30, 3600),
       swapKeys: !!s.swapKeys,
       instantFeedback: s.instantFeedback === undefined ? DEFAULT_SETTINGS.instantFeedback : !!s.instantFeedback,
@@ -2482,7 +2482,7 @@
     el.floorValue.addEventListener('input', function () {
       var v = parseInt(el.floorValue.value, 10);
       if (isNaN(v)) return;
-      state.settings.adaptiveFloorMs = clamp(v, 200, 5000);
+      state.settings.adaptiveFloorMs = clamp(v, 200, 10000);
       // Keep the pair sane in the UI too, not just under the hood.
       if (state.settings.adaptiveCeilingEnabled && state.settings.adaptiveFloorMs > state.settings.adaptiveCeilingMs) {
         state.settings.adaptiveCeilingMs = state.settings.adaptiveFloorMs;
@@ -2500,7 +2500,7 @@
     el.ceilingValue.addEventListener('input', function () {
       var v = parseInt(el.ceilingValue.value, 10);
       if (isNaN(v)) return;
-      state.settings.adaptiveCeilingMs = clamp(v, 200, 5000);
+      state.settings.adaptiveCeilingMs = clamp(v, 200, 10000);
       if (state.settings.adaptiveFloorEnabled && state.settings.adaptiveCeilingMs < state.settings.adaptiveFloorMs) {
         state.settings.adaptiveFloorMs = state.settings.adaptiveCeilingMs;
         el.floorValue.value = state.settings.adaptiveFloorMs;
