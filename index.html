@@ -135,6 +135,25 @@
   }
   .seg-btn.active { background: var(--amber); color: #1a1206; }
 
+  /* Same visual language as .segmented/.seg-btn above, but each button
+     toggles independently instead of being mutually exclusive — used for
+     eWMT's "pick any combination of image categories" control. */
+  .chip-group { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip-btn {
+    border: 1px solid var(--border);
+    background: var(--panel-recessed);
+    color: var(--text-muted);
+    padding: 9px 16px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.83rem;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .chip-btn.active { background: var(--amber); color: #1a1206; border-color: var(--amber); }
+  .field-note { margin: 10px 0 0; font-size: 0.8rem; }
+  .field-subrow { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
+
   select, input[type="number"] {
     width: 100%;
     padding: 10px 12px;
@@ -256,13 +275,15 @@
     align-items: center;
     justify-content: center;
   }
-  .corner { position: absolute; width: 16px; height: 16px; border: 2px solid rgba(240,169,78,0.35); }
+  .corner { position: absolute; width: 16px; height: 16px; border: 2px solid rgba(240,169,78,0.35); z-index: 3; }
   .corner.tl { top: 10px; left: 10px; border-right: none; border-bottom: none; border-radius: 4px 0 0 0; }
   .corner.tr { top: 10px; right: 10px; border-left: none; border-bottom: none; border-radius: 0 4px 0 0; }
   .corner.bl { bottom: 10px; left: 10px; border-right: none; border-top: none; border-radius: 0 0 0 4px; }
   .corner.br { bottom: 10px; right: 10px; border-left: none; border-top: none; border-radius: 0 0 4px 0; }
 
   .number-display {
+    position: relative;
+    z-index: 2;
     font-weight: 600;
     font-size: clamp(4rem, 20vw, 8.5rem);
     color: var(--amber);
@@ -272,6 +293,36 @@
     line-height: 1;
   }
 
+  /* ---------- eWMT mode: background image behind the number ---------- */
+  /* Sits behind .number-display (z-index 2) and above the frame's own
+     recessed background, but below the decorative .corner brackets
+     (z-index 3). Hidden (opacity 0) whenever eWMT mode is off or between
+     trials — see ewmtShowImage/ewmtHideImage — and only ever carries a
+     backgroundImage while state.settings.ewmtMode is on. */
+  .number-bg-image {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.65), inset 0 0 0 1px rgba(255,255,255,0.02);
+    opacity: 0;
+    transition: opacity 0.15s linear;
+    pointer-events: none;
+  }
+  .number-bg-image.visible { opacity: 1; }
+  /* Darkens toward the center so the amber number stays legible over a
+     busy or bright photo, while still letting the image read clearly
+     near the edges. Adjust the two alpha values here to taste. */
+  .number-bg-image::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.22) 70%);
+  }
 
   .key-hint {
     display: flex;
@@ -406,6 +457,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .number-display { transition: none; }
+    .number-bg-image { transition: none; }
   }
 </style>
 </head>
@@ -429,7 +481,8 @@
             <li><strong>Anything else</strong> → press nothing</li>
           </ul>
           <div id="spacebar-skip-instructions" class="hidden">
-            <p><strong>Spacebar skip</strong> — press <span class="key-tag">Space</span> any time a number is on screen to dismiss it early instead of waiting it out. Doesn't affect scoring or the pace of the digits, it just gets you past the number faster — handy on no-go trials once you've already decided nothing needs pressing.</p>
+            <p><strong>Spacebar skip</strong> — press <span class="key-tag">Space</span> any time a number is on screen to dismiss it early instead of waiting it out, so you can move on the moment you've made your decision. On sum and ±1 trials this is just a shortcut past the number and never affects scoring.</p>
+            <p id="stop-requires-spacebar-instructions" class="hidden">On a withhold trial, though, <span class="key-tag">Space</span> is now the <strong>required</strong> response rather than a pure shortcut: press it to mark that trial correct. Let a withhold trial pass without pressing it and it's now scored wrong, instead of the usual rule where doing nothing is correct.</p>
           </div>
           <div id="nback-instructions" class="hidden">
             <p><strong>N-back mode</strong> — instead of pairing each digit with the one spoken right before it, pair it with the digit from <span class="readout" id="nback-instructions-level">2</span> digits back. Everything else works the same: judge the flashed number against that sum.</p>
@@ -445,6 +498,9 @@
               <li>Your running addition carries across the switch — keep adding onto the same sequence, just from the newly-cued ear.</li>
             </ul>
             <p class="dim">Needs stereo headphones — the two streams won't separate on a single mono speaker. The beep uses the beep volume setting below.</p>
+          </div>
+          <div id="ewmt-instructions" class="hidden">
+            <p><strong>eWMT mode</strong> — while the number is on screen, the square behind it also shows an image, drawn from whichever categories you've selected below. The image appears and disappears in step with the number itself; it has no effect on scoring.</p>
           </div>
         </div>
       </details>
@@ -539,6 +595,11 @@
         <label class="switch"><input type="checkbox" id="spacebar-skip-toggle"><span class="switch-track"></span></label>
       </div>
 
+      <div class="field field-toggle" id="stop-requires-spacebar-field">
+        <label for="stop-requires-spacebar-toggle">Require it on withhold trials <span class="dim">(no press = marked wrong)</span></label>
+        <label class="switch"><input type="checkbox" id="stop-requires-spacebar-toggle"><span class="switch-track"></span></label>
+      </div>
+
       <div class="field field-toggle">
         <label for="feedback-toggle">Instant feedback</label>
         <label class="switch"><input type="checkbox" id="feedback-toggle"><span class="switch-track"></span></label>
@@ -583,6 +644,27 @@
         <label class="switch"><input type="checkbox" id="zen-toggle"><span class="switch-track"></span></label>
       </div>
 
+      <div class="field field-toggle">
+        <label for="ewmt-toggle">eWMT mode <span class="dim">(background image behind the number)</span></label>
+        <label class="switch"><input type="checkbox" id="ewmt-toggle"><span class="switch-track"></span></label>
+      </div>
+
+      <div class="field" id="ewmt-options-field">
+        <label>Image categories <span class="dim">(pick any combination)</span></label>
+        <div class="chip-group" id="ewmt-category-group">
+          <button type="button" class="chip-btn" data-category="faces">Human faces</button>
+          <button type="button" class="chip-btn" data-category="p">Porn</button>
+          <button type="button" class="chip-btn" data-category="g">Gore</button>
+          <button type="button" class="chip-btn" data-category="h">Hentai</button>
+        </div>
+        <p class="dim field-note hidden" id="ewmt-none-hint">No category selected — eWMT won't show an image until you pick at least one.</p>
+
+        <div class="field-toggle field-subrow">
+          <label for="ewmt-new-each-trial-toggle">New image every trial <span class="dim">(off = one image, whole session)</span></label>
+          <label class="switch"><input type="checkbox" id="ewmt-new-each-trial-toggle"><span class="switch-track"></span></label>
+        </div>
+      </div>
+
       <button id="start-btn" class="btn btn-primary btn-block">Start session</button>
       <button type="button" id="history-btn" class="btn btn-ghost btn-block history-open-btn">History</button>
     </div>
@@ -611,6 +693,7 @@
         <span class="corner tr"></span>
         <span class="corner bl"></span>
         <span class="corner br"></span>
+        <div class="number-bg-image" id="number-bg-image"></div>
         <div class="number-display mono" id="number-display"></div>
       </div>
     </div>
@@ -720,6 +803,70 @@
   var SCHEDULE_LOOKAHEAD_SEC = 0.12;
   var SCHEDULER_TICK_MS = 30;
 
+  // ============================================================
+  // eWMT mode — background image categories
+  // ============================================================
+  // Each category's images live in a folder of the same name, sitting
+  // next to this HTML file (same idea as the "audio" folder used above
+  // for digit playback):
+  //
+  //   Human faces/   face_0.jpg ... face_9.jpg        (10 files)
+  //   G/             g<infix>_1.webp ... g<infix>_27.webp  (27 files)
+  //   H/             h1.jpg ... h30.jpg                (30 files)
+  //   P/             74 files, mixed .jpg/.webp — listed explicitly
+  //                  below since the naming isn't a consistent pattern
+  //
+  // To rename what a category is CALLED in the app (the button label),
+  // edit the button text in the "Image categories" field in the HTML
+  // above (search for data-category="p", ="g", ="h", or ="faces").
+  // To point a category at different files, edit `folder`/`files` below.
+  // ------------------------------------------------------------
+
+  // >>> EDIT THIS ONE LINE once you know G's real filename infix <<<
+  // G's files are named "g" + EWMT_G_INFIX + "_" + n + ".webp". Change
+  // only the string below (e.g. 'abc123') and all 27 filenames — built
+  // from it just underneath — update automatically.
+  var EWMT_G_INFIX = 'ore';
+
+  // Builds ['prefix0.ext', 'prefix1.ext', ...] style lists without typing
+  // every filename out — e.g. ewmtRange(0, 9, fn) calls fn(0)..fn(9).
+  function ewmtRange(from, to, makeFilename) {
+    var files = [];
+    for (var i = from; i <= to; i++) files.push(makeFilename(i));
+    return files;
+  }
+
+  var EWMT_CATEGORIES = {
+    faces: {
+      folder: 'Human faces',
+      files: ewmtRange(0, 9, function (n) { return 'face_' + n + '.jpg'; })
+    },
+    g: {
+      folder: 'G',
+      files: ewmtRange(1, 27, function (n) { return 'g' + EWMT_G_INFIX + '_' + n + '.webp'; })
+    },
+    h: {
+      folder: 'H',
+      files: ewmtRange(1, 30, function (n) { return 'h' + n + '.jpg'; })
+    },
+    // Naming isn't consistent (mixed .jpg/.webp) so this is an explicit
+    // list rather than a generated pattern — matches the 74 filenames as
+    // given, p1.jpg through p74.webp.
+    p: {
+      folder: 'P',
+      files: [
+        'p1.jpg', 'p2.jpg', 'p3.jpg', 'p4.jpg', 'p5.jpg', 'p6.jpg', 'p7.jpg', 'p8.jpg', 'p9.jpg', 'p10.jpg',
+        'p11.webp', 'p12.jpg', 'p13.jpg', 'p14.jpg', 'p15.jpg', 'p16.jpg', 'p17.jpg', 'p18.jpg', 'p19.jpg', 'p20.jpg',
+        'p21.jpg', 'p22.jpg', 'p23.jpg', 'p24.jpg', 'p25.webp', 'p26.jpg', 'p27.jpg', 'p28.jpg', 'p29.jpg', 'p30.webp',
+        'p31.webp', 'p32.webp', 'p33.webp', 'p34.webp', 'p35.webp', 'p36.webp', 'p37.webp', 'p38.webp', 'p39.webp', 'p40.webp',
+        'p41.webp', 'p42.webp', 'p43.webp', 'p44.jpg', 'p45.webp', 'p46.webp', 'p47.webp', 'p48.jpg', 'p49.webp', 'p50.webp',
+        'p51.webp', 'p52.webp', 'p53.jpg', 'p54.webp', 'p55.webp', 'p56.webp', 'p57.webp', 'p58.webp', 'p59.webp', 'p60.jpg',
+        'p61.webp', 'p62.webp', 'p63.webp', 'p64.webp', 'p65.webp', 'p66.webp', 'p67.webp', 'p68.jpg', 'p69.webp', 'p70.jpg',
+        'p71.jpg', 'p72.webp', 'p73.webp', 'p74.webp'
+      ]
+    }
+  };
+
   var DEFAULT_SETTINGS = {
     mode: 'adaptive',
     startingSpeedMs: 1200,
@@ -742,6 +889,14 @@
     // early instead of waiting out its normal on-screen time. See
     // skipCurrentTrial.
     spacebarSkip: false,
+    // Sub-option of spacebarSkip — meaningless without it, see
+    // applyStopRequiresSpacebarFieldVisibility. When on, Space becomes
+    // the scored response on a withhold trial instead of a no-op early
+    // dismiss: pressing it marks that trial correct, and letting the
+    // trial pass without pressing it now marks it WRONG (rather than the
+    // normal withhold rule, where doing nothing is correct). See
+    // evaluateTrial and skipCurrentTrial.
+    stopRequiresSpacebar: false,
     // Optional user-set limits on how far adaptive mode can push the ISI
     // in either direction. Both off by default, in which case the only
     // bounds are the engine's own MIN_ISI/MAX_ISI.
@@ -752,7 +907,14 @@
     // Relative likelihoods of the three visually-presented number types.
     // Don't need to sum to 100 — pickStimulus normalizes them — but they
     // reproduce the original fixed 34/33/33 split as shipped defaults.
-    stimulusWeights: { sum: 34, plusminus: 33, stop: 33 }
+    stimulusWeights: { sum: 34, plusminus: 33, stop: 33 },
+    // eWMT mode (optional, off by default): shows a background image
+    // behind the number, in step with the number's own on-screen time,
+    // drawn from whichever categories are checked here. See
+    // EWMT_CATEGORIES above for the actual folders/files.
+    ewmtMode: false,
+    ewmtCategories: { faces: true, p: true, g: true, h: true },
+    ewmtNewImageEachTrial: true
   };
 
   // ============================================================
@@ -800,6 +962,16 @@
     return { sum: s, plusminus: p, stop: o };
   }
 
+  function sanitizeEwmtCategories(c) {
+    c = c || {};
+    return {
+      faces: c.faces === undefined ? DEFAULT_SETTINGS.ewmtCategories.faces : !!c.faces,
+      p: c.p === undefined ? DEFAULT_SETTINGS.ewmtCategories.p : !!c.p,
+      g: c.g === undefined ? DEFAULT_SETTINGS.ewmtCategories.g : !!c.g,
+      h: c.h === undefined ? DEFAULT_SETTINGS.ewmtCategories.h : !!c.h
+    };
+  }
+
   function sanitizeSettings(s) {
     s = s || {};
     var speed = parseInt(s.startingSpeedMs, 10);
@@ -823,11 +995,15 @@
       nBackMode: !!s.nBackMode,
       nBackLevel: clamp(isNaN(nBackLevel) ? DEFAULT_SETTINGS.nBackLevel : nBackLevel, MIN_NBACK_LEVEL, MAX_NBACK_LEVEL),
       spacebarSkip: !!s.spacebarSkip,
+      stopRequiresSpacebar: s.stopRequiresSpacebar === undefined ? DEFAULT_SETTINGS.stopRequiresSpacebar : !!s.stopRequiresSpacebar,
       adaptiveFloorEnabled: !!s.adaptiveFloorEnabled,
       adaptiveFloorMs: clamp(isNaN(floorMs) ? DEFAULT_SETTINGS.adaptiveFloorMs : floorMs, MIN_ISI, MAX_ISI),
       adaptiveCeilingEnabled: !!s.adaptiveCeilingEnabled,
       adaptiveCeilingMs: clamp(isNaN(ceilingMs) ? DEFAULT_SETTINGS.adaptiveCeilingMs : ceilingMs, MIN_ISI, MAX_ISI),
-      stimulusWeights: sanitizeStimulusWeights(s.stimulusWeights)
+      stimulusWeights: sanitizeStimulusWeights(s.stimulusWeights),
+      ewmtMode: !!s.ewmtMode,
+      ewmtCategories: sanitizeEwmtCategories(s.ewmtCategories),
+      ewmtNewImageEachTrial: s.ewmtNewImageEachTrial === undefined ? DEFAULT_SETTINGS.ewmtNewImageEachTrial : !!s.ewmtNewImageEachTrial
     };
   }
 
@@ -927,6 +1103,12 @@
   var countdownIntervalId = null;
   var audioCtx = null;
   var ticker = null; // scheduler "tick" source - a Worker when available, else a plain interval
+
+  // eWMT mode — built fresh each session by startSession; see the
+  // "eWMT mode — runtime image pool" section below for how these are used.
+  var ewmtPool = [];       // every image URL from the session's selected categories
+  var ewmtBag = [];        // shuffled draw order, refilled from ewmtPool whenever it runs dry
+  var ewmtSessionUrl = null; // the one image used all session when ewmtNewImageEachTrial is off
 
   // ============================================================
   // Digit audio — pre-rendered speech, decoded once into AudioBuffers
@@ -1373,15 +1555,85 @@
   }
 
   // ============================================================
+  // eWMT mode — runtime image pool
+  // ============================================================
+  // ewmtBuildPool turns the session's checked categories into a flat list
+  // of image URLs (startSession calls this once per session). ewmtNextUrl
+  // draws from a shuffled "bag" of that pool, reshuffling only once it's
+  // been fully drawn, so every image in every selected category is shown
+  // once before any of them repeat.
+  // ============================================================
+  function ewmtImageUrl(folder, filename) { return encodeURI(folder + '/' + filename); }
+
+  function ewmtBuildPool(categories) {
+    var pool = [];
+    Object.keys(EWMT_CATEGORIES).forEach(function (id) {
+      if (!categories[id]) return;
+      var cat = EWMT_CATEGORIES[id];
+      cat.files.forEach(function (filename) { pool.push(ewmtImageUrl(cat.folder, filename)); });
+    });
+    return pool;
+  }
+
+  function ewmtShuffle(arr) {
+    var a = arr.slice();
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+    }
+    return a;
+  }
+
+  // Returns null (rather than throwing or looping forever) when no
+  // category is selected — eWMT then just stays visually a no-op, which
+  // is also what the "no category selected" hint under the picker warns
+  // about.
+  function ewmtNextUrl() {
+    if (!ewmtPool.length) return null;
+    if (!ewmtBag.length) ewmtBag = ewmtShuffle(ewmtPool);
+    return ewmtBag.pop();
+  }
+
+  // Kicks off the browser's normal image fetch ahead of when the image
+  // is actually needed — same lookahead idea as the audio scheduler
+  // above. Called as soon as a trial's image is decided
+  // (prepareAndScheduleTrial), which is well before that trial's reveal
+  // timer fires, so a slow or not-yet-cached file has a head start and
+  // is less likely to still be loading when the number appears. A
+  // missing/broken file just never paints — a CSS background-image
+  // fails silently, with no broken-image icon — so a typo'd filename
+  // costs that one trial's image, not a visible error.
+  function ewmtPreload(url) {
+    if (!url) return;
+    var img = new Image();
+    img.src = url;
+  }
+
+  function ewmtShowImage(url) {
+    if (!url) { ewmtHideImage(); return; }
+    el.numberBgImage.style.backgroundImage = 'url("' + url + '")';
+    el.numberBgImage.classList.add('visible');
+  }
+
+  // Only fades the image out (opacity, via the .visible class above) —
+  // leaves the last backgroundImage in place rather than clearing it, so
+  // the CSS opacity transition has something to fade from instead of
+  // cutting straight to blank.
+  function ewmtHideImage() {
+    el.numberBgImage.classList.remove('visible');
+  }
+
+  // ============================================================
   // Trial display helpers
   // ============================================================
   function showStimulus(value) { el.numberDisplay.textContent = String(value); }
   function hideStimulus() {
     el.numberDisplay.textContent = '';
+    ewmtHideImage();
     hideTimerId = null;
     state.hideStimulusAt = null;
   }
-  function showPlaceholder() { el.numberDisplay.textContent = ''; }
+  function showPlaceholder() { el.numberDisplay.textContent = ''; ewmtHideImage(); }
 
   // Marks a trial's judgment number as actually on screen: sets the
   // trial's true stimulus-onset time (what reaction time is measured
@@ -1392,6 +1644,7 @@
     trial.stimulusShown = true;
     trial.onsetTime = performance.now();
     showStimulus(trial.displayValue);
+    ewmtShowImage(trial.ewmtImageUrl);
     showTimerId = null;
     state.showStimulusAt = null;
   }
@@ -1426,7 +1679,13 @@
 
     var correct;
     if (trial.correctResponseType === 'none') {
-      correct = (trial.userResponse === null);
+      // Both settings are checked (not just stopRequiresSpacebar) so a
+      // stale stopRequiresSpacebar:true left over from a session where
+      // spacebarSkip itself was off can never apply a rule the player
+      // had no way to satisfy — see DEFAULT_SETTINGS' comment on it.
+      correct = (state.settings.spacebarSkip && state.settings.stopRequiresSpacebar)
+        ? (trial.userResponse === 'withhold')
+        : (trial.userResponse === null);
     } else {
       correct = (trial.userResponse === trial.correctResponseType);
     }
@@ -1604,7 +1863,8 @@
       evaluated: false,
       onsetTime: null,
       rt: null,
-      dichotic: dichoticMeta
+      dichotic: dichoticMeta,
+      ewmtImageUrl: null
     };
 
     // Defensively clear any stale show/hide timers before arming this trial's.
@@ -1620,6 +1880,16 @@
       trial.displayValue = stim.displayValue;
       trial.correctResponseType = stim.correctResponseType;
       trial.sum = sum;
+
+      // Decided once, here, rather than at reveal time — so a pause/
+      // resume mid-reveal can't swap the image out from under a number
+      // that's already on screen (revealStimulus just replays whatever
+      // was picked). ewmtNextUrl draws a new one; the fixed-per-session
+      // option just reuses ewmtSessionUrl every trial.
+      if (state.settings.ewmtMode) {
+        trial.ewmtImageUrl = state.settings.ewmtNewImageEachTrial ? ewmtNextUrl() : ewmtSessionUrl;
+        ewmtPreload(trial.ewmtImageUrl);
+      }
 
       var msUntilDigitOnset = Math.max(0, (digitOnset - audioCtx.currentTime) * 1000);
       state.showStimulusAt = performance.now() + msUntilDigitOnset + isi * SOA_FRACTION;
@@ -1689,15 +1959,19 @@
 
   // Optional (off by default — see #spacebar-skip-toggle): hides the
   // current number early instead of waiting out its normal on-screen
-  // time. Doesn't touch scoring or the digit-pacing schedule at all —
-  // evaluateTrial still runs on its usual cadence at the start of the
-  // next trial, exactly as if the number had faded out on its own (a
-  // trial the user never responded to still scores exactly as it would
-  // have either way). Handy on no-go trials once you've already decided
-  // nothing needs pressing and don't want to keep looking at the number.
+  // time. Never touches the digit-pacing schedule either way. Scoring is
+  // untouched UNLESS stopRequiresSpacebar is also on and this is a
+  // withhold trial — in that case this press itself IS the scored
+  // response (see evaluateTrial), recorded the same way handleResponse
+  // records a left/right press, before the number gets dismissed as usual.
   function skipCurrentTrial() {
     if (!currentTrial || currentTrial.stimulusType === null) return;
     if (!currentTrial.stimulusShown) return; // nothing on screen yet to skip past
+    if (state.settings.stopRequiresSpacebar && currentTrial.correctResponseType === 'none' && !currentTrial.hasResponded) {
+      currentTrial.hasResponded = true;
+      currentTrial.userResponse = 'withhold';
+      currentTrial.rt = performance.now() - currentTrial.onsetTime;
+    }
     clearTimeout(hideTimerId);
     hideStimulus();
   }
@@ -1786,6 +2060,17 @@
     state.showStimulusAt = null;
     state.hideStimulusAt = null;
     currentTrial = null;
+
+    // eWMT mode: rebuild the pool from this session's checked categories
+    // (settings can't change mid-session, so this only needs doing once,
+    // here), pick the one fixed-for-the-session image up front for the
+    // "New image every trial" = off case, and make sure no image is left
+    // visible from a previous session.
+    ewmtPool = state.settings.ewmtMode ? ewmtBuildPool(state.settings.ewmtCategories) : [];
+    ewmtBag = [];
+    ewmtSessionUrl = ewmtPool.length ? ewmtPool[Math.floor(Math.random() * ewmtPool.length)] : null;
+    if (ewmtSessionUrl) ewmtPreload(ewmtSessionUrl);
+    ewmtHideImage();
 
     // Randomize which ear starts as the target, and force trial 1 to play
     // the orienting cue beep (trialsUntilSwitch <= 0 triggers it) so the
@@ -1885,7 +2170,11 @@
     var avgRt = responded.length ? (responded.reduce(function (s, r) { return s + r.rt; }, 0) / responded.length) : null;
 
     var misses = results.filter(function (r) { return r.correctResponseType !== 'none' && r.userResponse === null; }).length;
-    var falseAlarms = results.filter(function (r) { return r.correctResponseType === 'none' && r.userResponse !== null; }).length;
+    // Excludes 'withhold' (the deliberate, correct spacebar confirmation
+    // on a withhold trial — see skipCurrentTrial/stopRequiresSpacebar) so
+    // confirming a withhold correctly is never counted as a false alarm;
+    // only an actual positive/negative press on a withhold trial is.
+    var falseAlarms = results.filter(function (r) { return r.correctResponseType === 'none' && r.userResponse !== null && r.userResponse !== 'withhold'; }).length;
 
     return {
       timestamp: Date.now(),
@@ -1893,6 +2182,7 @@
       dichoticMode: state.settings.dichoticMode,
       nBackMode: state.settings.nBackMode,
       nBackLevel: state.settings.nBackLevel,
+      ewmtMode: state.settings.ewmtMode,
       durationSec: state.settings.durationSec,
       finalSpeedMs: state.currentISI,
       fastestSpeedMs: state.fastestISI,
@@ -1983,6 +2273,7 @@
       var tagParts = [rec.mode === 'fixed' ? 'Fixed' : 'Adaptive'];
       if (rec.dichoticMode) tagParts.push('Dichotic');
       if (rec.nBackMode) tagParts.push(rec.nBackLevel + '-back');
+      if (rec.ewmtMode) tagParts.push('eWMT');
       tagParts.push((Math.round(rec.durationSec / 6) / 10) + ' min');
       tagsEl.textContent = tagParts.join(' · ');
 
@@ -2019,6 +2310,14 @@
 
   function applySpacebarSkipInstructionsVisibility() {
     el.spacebarSkipInstructions.classList.toggle('hidden', !state.settings.spacebarSkip);
+    el.stopRequiresSpacebarInstructions.classList.toggle('hidden',
+      !(state.settings.spacebarSkip && state.settings.stopRequiresSpacebar));
+  }
+
+  // Sub-option of spacebarSkip (see DEFAULT_SETTINGS) — only shown once
+  // spacebar skip itself is on, same idea as applyNBackFieldVisibility.
+  function applyStopRequiresSpacebarFieldVisibility() {
+    el.stopRequiresSpacebarField.classList.toggle('hidden', !state.settings.spacebarSkip);
   }
 
   // The beep volume slider now drives two things: the optional incorrect-
@@ -2078,6 +2377,21 @@
     el.app.classList.toggle('zen-mode', state.settings.zenMode);
   }
 
+  function applyEwmtFieldsVisibility() {
+    el.ewmtOptionsField.classList.toggle('hidden', !state.settings.ewmtMode);
+    el.ewmtInstructions.classList.toggle('hidden', !state.settings.ewmtMode);
+    applyEwmtNoneHintVisibility();
+  }
+
+  // Nudges the player if eWMT is on but every category's been unchecked
+  // — otherwise the mode just silently shows nothing, which looks broken
+  // rather than off.
+  function applyEwmtNoneHintVisibility() {
+    var c = state.settings.ewmtCategories;
+    var anyChecked = c.faces || c.p || c.g || c.h;
+    el.ewmtNoneHint.classList.toggle('hidden', anyChecked);
+  }
+
   function populateMenuFromSettings() {
     setSegmented(el.modeToggle, state.settings.mode);
     el.speedSlider.value = state.settings.startingSpeedMs;
@@ -2113,6 +2427,8 @@
 
     setSegmented(el.keysToggle, String(state.settings.swapKeys));
     el.spacebarSkipToggle.checked = state.settings.spacebarSkip;
+    el.stopRequiresSpacebarToggle.checked = state.settings.stopRequiresSpacebar;
+    applyStopRequiresSpacebarFieldVisibility();
     applySpacebarSkipInstructionsVisibility();
     el.feedbackToggle.checked = state.settings.instantFeedback;
     el.beepVolume.value = state.settings.beepVolume;
@@ -2126,6 +2442,15 @@
     el.mobileToggle.checked = state.settings.mobileMode;
     el.zenToggle.checked = state.settings.zenMode;
     applyZenModeClass();
+
+    el.ewmtToggle.checked = state.settings.ewmtMode;
+    var ewmtGroupBtns = el.ewmtCategoryGroup.querySelectorAll('.chip-btn');
+    for (var ci = 0; ci < ewmtGroupBtns.length; ci++) {
+      var catId = ewmtGroupBtns[ci].getAttribute('data-category');
+      ewmtGroupBtns[ci].classList.toggle('active', !!state.settings.ewmtCategories[catId]);
+    }
+    el.ewmtNewEachTrialToggle.checked = state.settings.ewmtNewImageEachTrial;
+    applyEwmtFieldsVisibility();
 
     updateHintKeyLabels();
   }
@@ -2227,6 +2552,13 @@
 
     el.spacebarSkipToggle.addEventListener('change', function () {
       state.settings.spacebarSkip = el.spacebarSkipToggle.checked;
+      applyStopRequiresSpacebarFieldVisibility();
+      applySpacebarSkipInstructionsVisibility();
+      persistSettings();
+    });
+
+    el.stopRequiresSpacebarToggle.addEventListener('change', function () {
+      state.settings.stopRequiresSpacebar = el.stopRequiresSpacebarToggle.checked;
       applySpacebarSkipInstructionsVisibility();
       persistSettings();
     });
@@ -2311,6 +2643,27 @@
       persistSettings();
     });
 
+    el.ewmtToggle.addEventListener('change', function () {
+      state.settings.ewmtMode = el.ewmtToggle.checked;
+      applyEwmtFieldsVisibility();
+      persistSettings();
+    });
+
+    el.ewmtCategoryGroup.addEventListener('click', function (e) {
+      var btn = e.target.closest('.chip-btn');
+      if (!btn) return;
+      var id = btn.getAttribute('data-category');
+      state.settings.ewmtCategories[id] = !state.settings.ewmtCategories[id];
+      btn.classList.toggle('active', state.settings.ewmtCategories[id]);
+      applyEwmtNoneHintVisibility();
+      persistSettings();
+    });
+
+    el.ewmtNewEachTrialToggle.addEventListener('change', function () {
+      state.settings.ewmtNewImageEachTrial = el.ewmtNewEachTrialToggle.checked;
+      persistSettings();
+    });
+
     el.startBtn.addEventListener('click', startSession);
   }
 
@@ -2384,6 +2737,9 @@
     el.keysToggle = document.querySelector('[data-group="keys"]');
     el.spacebarSkipToggle = q('spacebar-skip-toggle');
     el.spacebarSkipInstructions = q('spacebar-skip-instructions');
+    el.stopRequiresSpacebarField = q('stop-requires-spacebar-field');
+    el.stopRequiresSpacebarToggle = q('stop-requires-spacebar-toggle');
+    el.stopRequiresSpacebarInstructions = q('stop-requires-spacebar-instructions');
     el.feedbackToggle = q('feedback-toggle');
     el.beepVolumeField = q('beep-volume-field');
     el.beepVolume = q('beep-volume');
@@ -2396,6 +2752,12 @@
     el.dichoticInstructions = q('dichotic-instructions');
     el.mobileToggle = q('mobile-toggle');
     el.zenToggle = q('zen-toggle');
+    el.ewmtToggle = q('ewmt-toggle');
+    el.ewmtOptionsField = q('ewmt-options-field');
+    el.ewmtCategoryGroup = q('ewmt-category-group');
+    el.ewmtNoneHint = q('ewmt-none-hint');
+    el.ewmtNewEachTrialToggle = q('ewmt-new-each-trial-toggle');
+    el.ewmtInstructions = q('ewmt-instructions');
     el.startBtn = q('start-btn');
     el.historyBtn = q('history-btn');
     el.hintMatchKey = q('hint-match-key');
@@ -2406,6 +2768,7 @@
     el.pauseBtn = q('pause-btn');
     el.endBtn = q('end-btn');
     el.numberDisplay = q('number-display');
+    el.numberBgImage = q('number-bg-image');
     el.hintLeft = q('hint-left');
     el.hintRight = q('hint-right');
     el.hintSkip = q('hint-skip');
