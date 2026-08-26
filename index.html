@@ -194,6 +194,26 @@
   .field-dropdown[open] .field-dropdown-arrow { transform: rotate(90deg); }
   .field-dropdown-body { margin-top: 16px; }
 
+  /* Link rows inside the "Learn more about the Chimera" dropdown */
+  .chimera-links { display: flex; flex-direction: column; gap: 10px; }
+  .chimera-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--panel-recessed);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 0.88rem;
+    font-weight: 500;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .chimera-link:hover { border-color: var(--amber); color: var(--amber); }
+  .chimera-link-arrow { color: var(--amber); font-size: 0.85rem; flex-shrink: 0; }
+
   select, input[type="number"] {
     width: 100%;
     padding: 10px 12px;
@@ -706,6 +726,22 @@
             </div>
           </div>
           <button type="button" id="weights-reset-btn" class="btn btn-ghost btn-sm weight-reset-btn">Reset to defaults</button>
+        </div>
+      </details>
+
+      <details class="field field-dropdown" id="chimera-links-dropdown">
+        <summary class="field-dropdown-summary"><span class="field-dropdown-arrow" aria-hidden="true">▸</span>Learn more about the Chimera</summary>
+        <div class="field-dropdown-body">
+          <div class="chimera-links">
+            <a class="chimera-link" href="https://discord.gg/VwgKJxerY" target="_blank" rel="noopener noreferrer">
+              <span>Project Chimera, Discord</span>
+              <span class="chimera-link-arrow" aria-hidden="true">↗</span>
+            </a>
+            <a class="chimera-link" href="https://www.reddit.com/r/DualnBack/comments/1vv4shr/the_greatest_brain_training_tool_yet/" target="_blank" rel="noopener noreferrer">
+              <span>The greatest brain training tool yet</span>
+              <span class="chimera-link-arrow" aria-hidden="true">↗</span>
+            </a>
+          </div>
         </div>
       </details>
 
