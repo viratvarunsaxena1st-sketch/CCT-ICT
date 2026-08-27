@@ -154,6 +154,57 @@
   .field-note { margin: 10px 0 0; font-size: 0.8rem; }
   .field-subrow { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
 
+  /* ---------- eWMT mode: custom uploaded images ---------- */
+  /* Sub-panel inside ewmt-options-field for the "Custom" chip above — lets
+     the player upload their own images instead of (or alongside) the
+     built-in folders, stored client-side in IndexedDB. See the "eWMT mode
+     — custom uploaded images" JS section for the storage layer. */
+  .ewmt-custom-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .ewmt-custom-header > label { margin-bottom: 0; }
+  .ewmt-custom-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .ewmt-custom-thumb {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background-color: var(--panel-recessed);
+    background-size: cover;
+    background-position: center;
+    overflow: hidden;
+  }
+  .ewmt-custom-thumb-remove {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(10,11,12,0.72);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background 0.15s, color 0.15s;
+  }
+  .ewmt-custom-thumb-remove:hover, .ewmt-custom-thumb-remove:focus-visible { background: var(--danger); color: #fff; }
+  .ewmt-custom-error { color: var(--danger); }
+
   /* ---------- Section heading (groups related fields, e.g. "Additional
      difficulty options") ---------- */
   .section-heading {
@@ -560,7 +611,7 @@
             <p class="dim">Needs stereo headphones — the two streams won't separate on a single mono speaker. The beep uses the beep volume setting below.</p>
           </div>
           <div id="ewmt-instructions" class="hidden">
-            <p><strong>eWMT mode</strong> — while the number is on screen, the square behind it also shows an image, drawn from whichever categories you've selected below. The image appears and disappears in step with the number itself; it has no effect on scoring.</p>
+            <p><strong>eWMT mode</strong> — while the number is on screen, the square behind it also shows an image, drawn from whichever categories you've selected below. The image appears and disappears in step with the number itself; it has no effect on scoring. Pick <strong>Custom</strong> to draw from images you upload yourself — they're stored locally in this browser, not uploaded anywhere.</p>
           </div>
         </div>
       </details>
@@ -689,12 +740,25 @@
           <button type="button" class="chip-btn" data-category="p">Porn</button>
           <button type="button" class="chip-btn" data-category="g">Gore</button>
           <button type="button" class="chip-btn" data-category="h">Hentai</button>
+          <button type="button" class="chip-btn" data-category="custom">Custom</button>
         </div>
         <p class="dim field-note hidden" id="ewmt-none-hint">No category selected — eWMT won't show an image until you pick at least one.</p>
 
         <div class="field-toggle field-subrow">
           <label for="ewmt-new-each-trial-toggle">New image every trial <span class="dim">(off = one image, whole session)</span></label>
           <label class="switch"><input type="checkbox" id="ewmt-new-each-trial-toggle"><span class="switch-track"></span></label>
+        </div>
+
+        <div class="field-subrow" id="ewmt-custom-field">
+          <div class="ewmt-custom-header">
+            <label>Your custom images <span class="dim">(used when "Custom" above is picked)</span></label>
+            <button type="button" id="ewmt-custom-upload-btn" class="btn btn-ghost btn-sm">+ Upload</button>
+          </div>
+          <input type="file" id="ewmt-custom-file-input" accept="image/*" multiple class="hidden">
+          <p class="dim field-note" id="ewmt-custom-empty">No custom images yet — upload some to include them.</p>
+          <div class="ewmt-custom-grid hidden" id="ewmt-custom-gallery"></div>
+          <p class="field-note ewmt-custom-error hidden" id="ewmt-custom-error-hint">Couldn't save that image — this browser may not support local image storage.</p>
+          <button type="button" id="ewmt-custom-clear-btn" class="btn btn-danger-ghost btn-sm hidden">Clear all custom images</button>
         </div>
       </div>
 
@@ -944,6 +1008,160 @@
     }
   };
 
+  // ============================================================
+  // eWMT mode — custom uploaded images (IndexedDB)
+  // ============================================================
+  // A fifth, player-supplied category alongside EWMT_CATEGORIES above.
+  // Unlike those folder-based categories, these images come from the
+  // player's own device via the "+ Upload" control and live in this
+  // browser's IndexedDB as Blobs — nothing is sent anywhere. customImages
+  // holds the in-memory, ready-to-use view of that store (each entry's
+  // `url` is an object URL created from its Blob); it's loaded once at
+  // startup by init() and kept in sync by every add/remove below.
+  // ewmtBuildPool (further down) reads straight from this array when the
+  // "custom" chip is checked, the same way it reads EWMT_CATEGORIES's
+  // files for the built-in chips.
+  // ------------------------------------------------------------
+  var CUSTOM_DB_NAME = 'chimera-ewmt-custom-images';
+  var CUSTOM_DB_VERSION = 1;
+  var CUSTOM_STORE_NAME = 'images';
+  var CUSTOM_IMAGE_MAX_DIM = 1600; // longest side, in px — see downscaleImageFile
+
+  var customImages = []; // [{ id, url, name }, ...] — the in-memory mirror of the IDB store
+  var customDbPromise = null;
+
+  function openCustomDb() {
+    if (customDbPromise) return customDbPromise;
+    customDbPromise = new Promise(function (resolve, reject) {
+      if (!window.indexedDB) { reject(new Error('IndexedDB not available')); return; }
+      var req = indexedDB.open(CUSTOM_DB_NAME, CUSTOM_DB_VERSION);
+      req.onupgradeneeded = function () {
+        if (!req.result.objectStoreNames.contains(CUSTOM_STORE_NAME)) {
+          req.result.createObjectStore(CUSTOM_STORE_NAME, { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+    return customDbPromise;
+  }
+
+  function customDbGetAll() {
+    return openCustomDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var req = db.transaction(CUSTOM_STORE_NAME, 'readonly').objectStore(CUSTOM_STORE_NAME).getAll();
+        req.onsuccess = function () { resolve(req.result || []); };
+        req.onerror = function () { reject(req.error); };
+      });
+    }).catch(function () { return []; });
+  }
+
+  function customDbPut(record) {
+    return openCustomDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(CUSTOM_STORE_NAME, 'readwrite');
+        tx.objectStore(CUSTOM_STORE_NAME).put(record);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  function customDbDelete(id) {
+    return openCustomDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(CUSTOM_STORE_NAME, 'readwrite');
+        tx.objectStore(CUSTOM_STORE_NAME).delete(id);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  function customDbClear() {
+    return openCustomDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(CUSTOM_STORE_NAME, 'readwrite');
+        tx.objectStore(CUSTOM_STORE_NAME).clear();
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  function customImageId() { return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+
+  // Re-reads every stored record from IndexedDB into customImages, minting
+  // a fresh object URL per Blob and revoking the previous batch first so
+  // repeated calls (after every add/remove) don't leak URLs.
+  function customImagesLoad() {
+    return customDbGetAll().then(function (records) {
+      customImages.forEach(function (img) { if (img.url) URL.revokeObjectURL(img.url); });
+      customImages = records.map(function (r) {
+        return { id: r.id, url: URL.createObjectURL(r.blob), name: r.name };
+      });
+      return customImages;
+    });
+  }
+
+  // Phone-camera photos routinely run 10+ MB; re-encoding anything wider
+  // or taller than CUSTOM_IMAGE_MAX_DIM keeps IndexedDB usage and paint
+  // time reasonable, with no visible loss at the size this is actually
+  // shown (a background square behind the number, not full-screen).
+  // Images already at or under the cap are stored untouched, format and
+  // all. Resolves with a Blob either way, never rejects.
+  function downscaleImageFile(file) {
+    return new Promise(function (resolve) {
+      var objectUrl = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        URL.revokeObjectURL(objectUrl);
+        var w = img.naturalWidth, h = img.naturalHeight;
+        if (!w || !h || Math.max(w, h) <= CUSTOM_IMAGE_MAX_DIM) { resolve(file); return; }
+        var scale = CUSTOM_IMAGE_MAX_DIM / Math.max(w, h);
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.round(w * scale);
+        canvas.height = Math.round(h * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(function (blob) { resolve(blob || file); }, 'image/jpeg', 0.86);
+      };
+      img.onerror = function () { URL.revokeObjectURL(objectUrl); resolve(file); };
+      img.src = objectUrl;
+    });
+  }
+
+  // Filters to actual images, downscales+stores each, then reloads
+  // customImages from IDB so the pool and gallery both reflect the new
+  // set. The menu-wiring click handler chains onto this to know when to
+  // reset the upload button's label.
+  function handleCustomImageFiles(fileList) {
+    var files = Array.prototype.filter.call(fileList, function (f) {
+      return f.type && f.type.indexOf('image/') === 0;
+    });
+    if (!files.length) return Promise.resolve();
+    return Promise.all(files.map(function (file) {
+      return downscaleImageFile(file).then(function (blob) {
+        return customDbPut({ id: customImageId(), blob: blob, name: file.name });
+      });
+    }))
+      .then(function () {
+        el.ewmtCustomErrorHint.classList.add('hidden');
+        return customImagesLoad();
+      })
+      .then(refreshCustomImageGalleryUI)
+      .catch(function () {
+        el.ewmtCustomErrorHint.classList.remove('hidden');
+      });
+  }
+
+  function removeCustomImage(id) {
+    return customDbDelete(id).then(customImagesLoad).then(refreshCustomImageGalleryUI);
+  }
+
+  function clearCustomImages() {
+    return customDbClear().then(customImagesLoad).then(refreshCustomImageGalleryUI);
+  }
+
   var DEFAULT_SETTINGS = {
     mode: 'adaptive',
     startingSpeedMs: 1200,
@@ -990,7 +1208,7 @@
     // drawn from whichever categories are checked here. See
     // EWMT_CATEGORIES above for the actual folders/files.
     ewmtMode: false,
-    ewmtCategories: { faces: true, p: true, g: true, h: true },
+    ewmtCategories: { faces: true, p: true, g: true, h: true, custom: false },
     ewmtNewImageEachTrial: true
   };
 
@@ -1045,7 +1263,8 @@
       faces: c.faces === undefined ? DEFAULT_SETTINGS.ewmtCategories.faces : !!c.faces,
       p: c.p === undefined ? DEFAULT_SETTINGS.ewmtCategories.p : !!c.p,
       g: c.g === undefined ? DEFAULT_SETTINGS.ewmtCategories.g : !!c.g,
-      h: c.h === undefined ? DEFAULT_SETTINGS.ewmtCategories.h : !!c.h
+      h: c.h === undefined ? DEFAULT_SETTINGS.ewmtCategories.h : !!c.h,
+      custom: c.custom === undefined ? DEFAULT_SETTINGS.ewmtCategories.custom : !!c.custom
     };
   }
 
@@ -1634,6 +1853,12 @@
       var cat = EWMT_CATEGORIES[id];
       cat.files.forEach(function (filename) { pool.push(ewmtImageUrl(cat.folder, filename)); });
     });
+    // Custom isn't in EWMT_CATEGORIES (no folder/files — see the "eWMT mode
+    // — custom uploaded images" section) so it's pooled separately, from
+    // the object URLs already sitting in customImages.
+    if (categories.custom) {
+      customImages.forEach(function (img) { pool.push(img.url); });
+    }
     return pool;
   }
 
@@ -2349,6 +2574,44 @@
     });
   }
 
+  // Renders customImages as a thumbnail grid with a remove button on each
+  // (wired via delegation in wireMenu, same pattern as the category chip
+  // group) and shows/hides the empty hint and "Clear all" button to
+  // match. Doesn't touch ewmt-custom-error-hint — that's owned by whichever
+  // operation just ran (upload success clears it, failure sets it).
+  function renderCustomImageGallery() {
+    el.ewmtCustomGallery.innerHTML = '';
+    var hasImages = customImages.length > 0;
+    el.ewmtCustomEmpty.classList.toggle('hidden', hasImages);
+    el.ewmtCustomGallery.classList.toggle('hidden', !hasImages);
+    el.ewmtCustomClearBtn.classList.toggle('hidden', !hasImages);
+
+    customImages.forEach(function (img) {
+      var thumb = document.createElement('div');
+      thumb.className = 'ewmt-custom-thumb';
+      thumb.style.backgroundImage = 'url("' + img.url + '")';
+
+      var rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'ewmt-custom-thumb-remove';
+      rm.setAttribute('data-id', img.id);
+      rm.setAttribute('aria-label', 'Remove this image');
+      rm.textContent = '\u00D7';
+
+      thumb.appendChild(rm);
+      el.ewmtCustomGallery.appendChild(thumb);
+    });
+  }
+
+  // Bundles the two things that need to happen together whenever the
+  // custom-image set changes (initial load, upload, single remove, clear
+  // all): repaint the gallery, and recheck whether the "no image will
+  // show" hint should be up.
+  function refreshCustomImageGalleryUI() {
+    renderCustomImageGallery();
+    applyEwmtNoneHintVisibility();
+  }
+
   // ============================================================
   // Menu wiring
   // ============================================================
@@ -2447,10 +2710,15 @@
 
   // Nudges the player if eWMT is on but every category's been unchecked
   // — otherwise the mode just silently shows nothing, which looks broken
-  // rather than off.
+  // rather than off. Custom only counts as "checked" here if it would
+  // actually contribute an image — picked with an empty gallery is the
+  // same dead end as picking nothing, so it should get the same nudge.
   function applyEwmtNoneHintVisibility() {
+    // Guards against the custom-image gallery finishing its own (separate,
+    // IndexedDB-backed) load before loadSettings() resolves — see init().
+    if (!state.settings) return;
     var c = state.settings.ewmtCategories;
-    var anyChecked = c.faces || c.p || c.g || c.h;
+    var anyChecked = c.faces || c.p || c.g || c.h || (c.custom && customImages.length > 0);
     el.ewmtNoneHint.classList.toggle('hidden', anyChecked);
   }
 
@@ -2735,6 +3003,32 @@
       persistSettings();
     });
 
+    el.ewmtCustomUploadBtn.addEventListener('click', function () {
+      el.ewmtCustomFileInput.click();
+    });
+    el.ewmtCustomFileInput.addEventListener('change', function (e) {
+      var files = e.target.files;
+      if (!files || !files.length) return;
+      el.ewmtCustomUploadBtn.disabled = true;
+      el.ewmtCustomUploadBtn.textContent = 'Uploading…';
+      handleCustomImageFiles(files).then(function () {
+        el.ewmtCustomUploadBtn.disabled = false;
+        el.ewmtCustomUploadBtn.textContent = '+ Upload';
+        el.ewmtCustomFileInput.value = ''; // allow re-picking the same file(s) later
+      });
+    });
+    el.ewmtCustomGallery.addEventListener('click', function (e) {
+      var btn = e.target.closest('.ewmt-custom-thumb-remove');
+      if (!btn) return;
+      removeCustomImage(btn.getAttribute('data-id'));
+    });
+    el.ewmtCustomClearBtn.addEventListener('click', function () {
+      var n = customImages.length;
+      if (!n) return;
+      if (!confirm('Remove all ' + n + ' custom image' + (n === 1 ? '' : 's') + '? This can\'t be undone.')) return;
+      clearCustomImages();
+    });
+
     el.startBtn.addEventListener('click', startSession);
   }
 
@@ -2832,6 +3126,12 @@
     el.ewmtNoneHint = q('ewmt-none-hint');
     el.ewmtNewEachTrialToggle = q('ewmt-new-each-trial-toggle');
     el.ewmtInstructions = q('ewmt-instructions');
+    el.ewmtCustomUploadBtn = q('ewmt-custom-upload-btn');
+    el.ewmtCustomFileInput = q('ewmt-custom-file-input');
+    el.ewmtCustomEmpty = q('ewmt-custom-empty');
+    el.ewmtCustomGallery = q('ewmt-custom-gallery');
+    el.ewmtCustomErrorHint = q('ewmt-custom-error-hint');
+    el.ewmtCustomClearBtn = q('ewmt-custom-clear-btn');
     el.startBtn = q('start-btn');
     el.historyBtn = q('history-btn');
     el.hintMatchKey = q('hint-match-key');
@@ -2882,6 +3182,7 @@
     wireReport();
     wireHistory();
     decodeAllDigitAudio(); // start decoding right away so it's ready well before "Start session" is clicked
+    customImagesLoad().then(refreshCustomImageGalleryUI); // populate the eWMT custom gallery in the background — doesn't block the menu below
 
     loadSettings().then(function (settings) {
       state.settings = settings;
