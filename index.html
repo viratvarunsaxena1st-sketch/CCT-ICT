@@ -435,6 +435,43 @@
     background: radial-gradient(ellipse at center, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.22) 70%);
   }
 
+  /* ---------- Dichotic mode: "Visual help" half-screen cue ---------- */
+  /* Two fixed, full-height halves sitting as the first children of
+     #play-screen — earlier in DOM order than .top-bar/.number-stage/etc,
+     so with everything else at its default z-index:auto they paint
+     underneath those (all opaque) elements without needing an explicit
+     z-index or stacking-context trick. Only the half matching the
+     currently-targeted ear gets .active; see updateDichoticVisualCue. */
+  .dichotic-visual-half {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: 50%;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .dichotic-visual-half.left { left: 0; }
+  .dichotic-visual-half.right { right: 0; }
+  .dichotic-visual-half.active { opacity: 0.4; }
+
+  /* Native color input, restyled to sit quietly in the dark theme instead
+     of showing the browser's default light swatch chrome. */
+  .color-input {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 44px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: none;
+    cursor: pointer;
+  }
+  .color-input::-webkit-color-swatch-wrapper { padding: 0; }
+  .color-input::-webkit-color-swatch { border: none; border-radius: 7px; }
+  .color-input::-moz-color-swatch { border: none; border-radius: 7px; }
+
   .key-hint {
     display: flex;
     justify-content: space-between;
@@ -586,10 +623,14 @@
         <summary>How this works</summary>
         <div class="instructions-body">
           <p>Digits from 1–9 are read aloud, one at a time. Add each new digit to the one spoken right before it — not a running total. A number flashes on screen after every pair: decide whether it's that sum.</p>
-          <ul>
+          <ul id="response-rules-default">
             <li><strong>It is the sum</strong> → press <span class="key-tag" id="hint-match-key">Left</span></li>
             <li><strong>It's the sum, off by one</strong> → press <span class="key-tag" id="hint-nomatch-key">Right</span></li>
             <li><strong>Anything else</strong> → press nothing</li>
+          </ul>
+          <ul id="response-rules-cct" class="hidden">
+            <li><strong>It is the sum</strong> → press <span class="key-tag" id="hint-match-key-cct">Left</span></li>
+            <li><strong>It isn't the sum</strong> → press <span class="key-tag" id="hint-nomatch-key-cct">Right</span> — every trial gets one of the two, never a free pass</li>
           </ul>
           <div id="spacebar-skip-instructions" class="hidden">
             <p><strong>Spacebar skip</strong> — press <span class="key-tag">Space</span> any time a number is on screen to dismiss it early instead of waiting it out, so you can move on the moment you've made your decision. On sum and ±1 trials this is just a shortcut past the number and never affects scoring.</p>
@@ -601,7 +642,7 @@
           </div>
           <div id="dichotic-instructions" class="hidden">
             <p><strong>Dichotic attention switching</strong> <span class="dim">(experimental)</span> — every interval, two different digits now play at once, one in each ear. A short beep in one ear tells you which ear to follow. Add and judge digits from that ear only, and let the other ear pass by unattended — until the beep plays in the other ear.</p>
-            <p>The two ears also speak in different voices — <strong>male in the left ear</strong>, <strong>female in the right ear</strong> — as a constant cue for which stream is which, on top of the beep.</p>
+            <p>The two ears also speak in different voices — <strong>male in the left ear</strong>, <strong>female in the right ear</strong> — as a constant cue for which stream is which, on top of the beep. Turn on <strong>Visual help</strong> below for a third, standing cue: half the screen stays lit — in whatever color you pick — for as long as that's the ear to follow.</p>
             <ul>
               <li>A beep in your <strong>left ear</strong> → follow the <strong>left ear</strong> from then on.</li>
               <li>A beep in your <strong>right ear</strong> → follow the <strong>right ear</strong> from then on.</li>
@@ -728,6 +769,16 @@
         </div>
       </div>
 
+      <div class="field field-toggle" id="dichotic-visual-help-field">
+        <label for="dichotic-visual-help-toggle">Visual help <span class="dim">(half the screen lights up for the target ear)</span></label>
+        <label class="switch"><input type="checkbox" id="dichotic-visual-help-toggle"><span class="switch-track"></span></label>
+      </div>
+
+      <div class="field" id="dichotic-visual-color-field">
+        <label for="dichotic-visual-color">Visual help color</label>
+        <input type="color" id="dichotic-visual-color" class="color-input">
+      </div>
+
       <div class="field field-toggle">
         <label for="ewmt-toggle">eWMT mode <span class="dim">(background image behind the number)</span></label>
         <label class="switch"><input type="checkbox" id="ewmt-toggle"><span class="switch-track"></span></label>
@@ -770,6 +821,11 @@
       <div class="field" id="nback-level-field">
         <label>N-back level <span class="readout" id="nback-level-value"></span></label>
         <input type="range" id="nback-level-slider" min="2" max="10" step="1">
+      </div>
+
+      <div class="field field-toggle">
+        <label for="cct-toggle">CCT mode <span class="dim">(every trial gets an active match / no-match response)</span></label>
+        <label class="switch"><input type="checkbox" id="cct-toggle"><span class="switch-track"></span></label>
       </div>
 
       <details class="field field-dropdown" id="weights-dropdown">
@@ -815,6 +871,8 @@
   </section>
 
   <section id="play-screen" class="screen hidden">
+    <div class="dichotic-visual-half left" id="dichotic-visual-left"></div>
+    <div class="dichotic-visual-half right" id="dichotic-visual-right"></div>
     <button type="button" id="zen-pause-btn" class="zen-pause-btn" aria-label="Pause session">⏸</button>
     <div class="top-bar">
       <div class="stat-block">
@@ -873,10 +931,10 @@
       <div class="stat-grid">
         <div class="stat-card"><div class="value mono" id="sum-accuracy">–</div><div class="label">Sum trials</div></div>
         <div class="stat-card"><div class="value mono" id="pm-accuracy">–</div><div class="label">±1 trials</div></div>
-        <div class="stat-card"><div class="value mono" id="stop-accuracy">–</div><div class="label">Withhold trials</div></div>
+        <div class="stat-card"><div class="value mono" id="stop-accuracy">–</div><div class="label" id="stop-accuracy-label">Withhold trials</div></div>
         <div class="stat-card"><div class="value mono" id="avg-rt">–</div><div class="label">Avg reaction time</div></div>
         <div class="stat-card"><div class="value mono" id="misses-count">–</div><div class="label">Misses</div></div>
-        <div class="stat-card"><div class="value mono" id="false-alarms-count">–</div><div class="label">False alarms</div></div>
+        <div class="stat-card" id="false-alarms-card"><div class="value mono" id="false-alarms-count">–</div><div class="label">False alarms</div></div>
         <div class="stat-card"><div class="value mono" id="final-speed">–</div><div class="label">Final speed</div></div>
         <div class="stat-card hidden" id="fastest-speed-card"><div class="value mono" id="fastest-speed">–</div><div class="label">Fastest speed</div></div>
         <div class="stat-card hidden" id="slowest-speed-card"><div class="value mono" id="slowest-speed">–</div><div class="label">Slowest speed</div></div>
@@ -1209,7 +1267,20 @@
     // EWMT_CATEGORIES above for the actual folders/files.
     ewmtMode: false,
     ewmtCategories: { faces: true, p: true, g: true, h: true, custom: false },
-    ewmtNewImageEachTrial: true
+    ewmtNewImageEachTrial: true,
+    // CCT mode (optional, off by default): every trial now gets an active
+    // match/no-match response — the third "anything else, press nothing"
+    // (withhold) outcome is folded into "press no-match" instead. Only
+    // changes stop-type trials' correctResponseType (see pickStimulus);
+    // stop-type generation itself, and the Number type probabilities
+    // weights that control it, are untouched.
+    cctMode: false,
+    // Dichotic mode's optional visual cue (meaningless without
+    // dichoticMode itself — see applyDichoticVisualHelpVisibility):
+    // colors half the screen to match the currently-targeted ear,
+    // alongside the existing switch-cue beep. See updateDichoticVisualCue.
+    dichoticVisualHelp: false,
+    dichoticVisualColor: '#f0a94e'
   };
 
   // ============================================================
@@ -1255,6 +1326,10 @@
       };
     }
     return { sum: s, plusminus: p, stop: o };
+  }
+
+  function sanitizeHexColor(c, fallback) {
+    return (typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c)) ? c : fallback;
   }
 
   function sanitizeEwmtCategories(c) {
@@ -1303,7 +1378,10 @@
       stimulusWeights: sanitizeStimulusWeights(s.stimulusWeights),
       ewmtMode: !!s.ewmtMode,
       ewmtCategories: sanitizeEwmtCategories(s.ewmtCategories),
-      ewmtNewImageEachTrial: s.ewmtNewImageEachTrial === undefined ? DEFAULT_SETTINGS.ewmtNewImageEachTrial : !!s.ewmtNewImageEachTrial
+      ewmtNewImageEachTrial: s.ewmtNewImageEachTrial === undefined ? DEFAULT_SETTINGS.ewmtNewImageEachTrial : !!s.ewmtNewImageEachTrial,
+      cctMode: !!s.cctMode,
+      dichoticVisualHelp: !!s.dichoticVisualHelp,
+      dichoticVisualColor: sanitizeHexColor(s.dichoticVisualColor, DEFAULT_SETTINGS.dichoticVisualColor)
     };
   }
 
@@ -1400,6 +1478,7 @@
   var currentTrial = null;
   var showTimerId = null;
   var hideTimerId = null;
+  var dichoticVisualTimerId = null;
   var countdownIntervalId = null;
   var audioCtx = null;
   var ticker = null; // scheduler "tick" source - a Worker when available, else a plain interval
@@ -1776,6 +1855,25 @@
     } catch (e) { /* ignore */ }
   }
 
+  // Dichotic mode's optional "Visual help" cue — the standing half-screen
+  // counterpart to scheduleSwitchCue's beep, for players who'd rather have
+  // a persistent visual anchor than rely on remembering the last beep.
+  // Called from a setTimeout armed the same way the beep's own audio-clock
+  // `when` is (see prepareAndScheduleTrial), so the two land together.
+  function updateDichoticVisualCue(targetEar) {
+    if (state.screen !== 'playing' || !state.settings.dichoticVisualHelp) return;
+    var color = state.settings.dichoticVisualColor;
+    el.dichoticVisualLeft.style.backgroundColor = color;
+    el.dichoticVisualRight.style.backgroundColor = color;
+    el.dichoticVisualLeft.classList.toggle('active', targetEar === 'L');
+    el.dichoticVisualRight.classList.toggle('active', targetEar === 'R');
+  }
+
+  function hideDichoticVisualCue() {
+    el.dichoticVisualLeft.classList.remove('active');
+    el.dichoticVisualRight.classList.remove('active');
+  }
+
   // ============================================================
   // Stimulus generation
   //   sum:        the true sum
@@ -1831,7 +1929,15 @@
     } else if (roll < wSum + wPm) {
       return { type: 'plusminus', displayValue: pickPlusMinus(sum, isDouble), correctResponseType: 'negative' };
     } else {
-      return { type: 'stop', displayValue: pickStop(sum, isDouble), correctResponseType: 'none' };
+      // CCT mode folds this outcome into "press no-match" instead of
+      // "press nothing" — see DEFAULT_SETTINGS.cctMode. The number itself
+      // is still drawn the same way (pickStop, not pickPlusMinus), so the
+      // Number type probabilities sliders keep meaning exactly what they
+      // said; only what response counts as correct changes.
+      // Matches the same defensive state.settings check pickStimulus
+      // already does above for stimulusWeights.
+      var cct = state.settings && state.settings.cctMode;
+      return { type: 'stop', displayValue: pickStop(sum, isDouble), correctResponseType: cct ? 'negative' : 'none' };
     }
   }
 
@@ -2116,6 +2222,17 @@
       if (isSwitchTrial) {
         scheduleSwitchCue(when, targetEar);
         digitOnset = when + DICHOTIC_TONE_DURATION_SEC + DICHOTIC_CUE_GAP_SEC;
+        if (state.settings.dichoticVisualHelp) {
+          // Only cleared here, on an actual new switch — never in the
+          // per-trial defensive clear further up (like showTimerId/
+          // hideTimerId get) — because switches are several trials apart
+          // while lookahead scheduling can burst-prepare a few trials back
+          // to back after a stall; clearing on every trial could cancel
+          // this one before its `when` ever arrives.
+          clearTimeout(dichoticVisualTimerId);
+          var msUntilSwitch = Math.max(0, (when - audioCtx.currentTime) * 1000);
+          dichoticVisualTimerId = setTimeout(function () { updateDichoticVisualCue(targetEar); }, msUntilSwitch);
+        }
       }
       // Same `digitOnset` for both — this is what true dichotic playback
       // actually needs: both ears starting on the exact same sample.
@@ -2359,6 +2476,8 @@
     // user isn't left guessing which ear to attend to from the start.
     state.dichotic.targetEar = Math.random() < 0.5 ? 'L' : 'R';
     state.dichotic.trialsUntilSwitch = 0;
+    clearTimeout(dichoticVisualTimerId);
+    hideDichoticVisualCue(); // clear any color left over from a previous session; trial 1's switch lights the right side moments later
 
     el.pauseOverlay.classList.add('hidden');
 
@@ -2422,9 +2541,11 @@
     stopTicker();
     clearTimeout(showTimerId);
     clearTimeout(hideTimerId);
+    clearTimeout(dichoticVisualTimerId);
     clearInterval(countdownIntervalId);
     stopAllPendingAudio();
     el.pauseOverlay.classList.add('hidden');
+    hideDichoticVisualCue();
     showReport();
     showScreen('report');
   }
@@ -2465,6 +2586,7 @@
       nBackMode: state.settings.nBackMode,
       nBackLevel: state.settings.nBackLevel,
       ewmtMode: state.settings.ewmtMode,
+      cctMode: state.settings.cctMode,
       durationSec: state.settings.durationSec,
       finalSpeedMs: state.currentISI,
       fastestSpeedMs: state.fastestISI,
@@ -2495,6 +2617,15 @@
     el.falseAlarmsCount.textContent = stats.falseAlarms;
     el.finalSpeed.textContent = stats.finalSpeedMs + ' ms';
     el.totalTrials.textContent = stats.totalTrials;
+
+    // CCT mode has no withhold trials, so "Withhold trials" is the wrong
+    // label for what stop-accuracy is now measuring (still a real, useful
+    // number — just "Other trials" needing a no-match press like ±1 does,
+    // not a press-nothing case) — and "False alarms" is always exactly 0
+    // by construction (there's no more "should've withheld" to false-alarm
+    // on), so that card is hidden rather than shown pinned at zero.
+    el.stopAccuracyLabel.textContent = stats.cctMode ? 'Other trials' : 'Withhold trials';
+    el.falseAlarmsCard.classList.toggle('hidden', !!stats.cctMode);
 
     // Fastest/slowest only mean anything in adaptive mode (fixed mode
     // never moves off the starting speed), so the two cards stay hidden
@@ -2556,6 +2687,7 @@
       if (rec.dichoticMode) tagParts.push('Dichotic');
       if (rec.nBackMode) tagParts.push(rec.nBackLevel + '-back');
       if (rec.ewmtMode) tagParts.push('eWMT');
+      if (rec.cctMode) tagParts.push('CCT');
       tagParts.push((Math.round(rec.durationSec / 6) / 10) + ' min');
       tagsEl.textContent = tagParts.join(' · ');
 
@@ -2626,18 +2758,35 @@
     var swapped = state.settings.swapKeys;
     el.hintMatchKey.textContent = swapped ? 'Right' : 'Left';
     el.hintNoMatchKey.textContent = swapped ? 'Left' : 'Right';
+    el.hintMatchKeyCct.textContent = swapped ? 'Right' : 'Left';
+    el.hintNoMatchKeyCct.textContent = swapped ? 'Left' : 'Right';
   }
 
   function applySpacebarSkipInstructionsVisibility() {
     el.spacebarSkipInstructions.classList.toggle('hidden', !state.settings.spacebarSkip);
     el.stopRequiresSpacebarInstructions.classList.toggle('hidden',
-      !(state.settings.spacebarSkip && state.settings.stopRequiresSpacebar));
+      !(state.settings.spacebarSkip && state.settings.stopRequiresSpacebar && !state.settings.cctMode));
   }
 
   // Sub-option of spacebarSkip (see DEFAULT_SETTINGS) — only shown once
   // spacebar skip itself is on, same idea as applyNBackFieldVisibility.
+  // Also hidden under CCT mode: there are no withhold trials left for a
+  // "required spacebar confirmation" to apply to (see pickStimulus).
   function applyStopRequiresSpacebarFieldVisibility() {
-    el.stopRequiresSpacebarField.classList.toggle('hidden', !state.settings.spacebarSkip);
+    el.stopRequiresSpacebarField.classList.toggle('hidden', !state.settings.spacebarSkip || state.settings.cctMode);
+  }
+
+  // Swaps which "How this works" list (and which key-hint copy) is shown
+  // — CCT mode collapses the normal 3-outcome list (match / no-match /
+  // withhold) into 2 (match / no-match), since pickStimulus no longer
+  // ever produces a withhold-correct trial once it's on. The two settings
+  // this interacts with (stop-requires-spacebar) get re-checked here too,
+  // since either one flipping can affect the other's visibility.
+  function applyCctModeVisibility() {
+    el.responseRulesDefault.classList.toggle('hidden', state.settings.cctMode);
+    el.responseRulesCct.classList.toggle('hidden', !state.settings.cctMode);
+    applyStopRequiresSpacebarFieldVisibility();
+    applySpacebarSkipInstructionsVisibility();
   }
 
   // Now that feedback and dichotic each have their own volume slider (see
@@ -2655,6 +2804,15 @@
 
   function applyDichoticInstructionsVisibility() {
     el.dichoticInstructions.classList.toggle('hidden', !state.settings.dichoticMode);
+  }
+
+  // Visual help's own toggle only means anything once dichotic mode
+  // itself is on (same idea as applyDichoticCueVolumeVisibility); the
+  // color picker is a further sub-option nested under Visual help itself.
+  function applyDichoticVisualHelpVisibility() {
+    el.dichoticVisualHelpField.classList.toggle('hidden', !state.settings.dichoticMode);
+    el.dichoticVisualColorField.classList.toggle('hidden',
+      !(state.settings.dichoticMode && state.settings.dichoticVisualHelp));
   }
 
   // Dichotic mode always speaks both voices at once (male left, female
@@ -2750,6 +2908,9 @@
     updateNBackLevelReadout();
     applyNBackFieldVisibility();
 
+    el.cctToggle.checked = state.settings.cctMode;
+    applyCctModeVisibility();
+
     el.weightSum.value = state.settings.stimulusWeights.sum;
     el.weightPlusminus.value = state.settings.stimulusWeights.plusminus;
     el.weightStop.value = state.settings.stimulusWeights.stop;
@@ -2767,9 +2928,12 @@
     el.dichoticToggle.checked = state.settings.dichoticMode;
     el.dichoticCueVolume.value = state.settings.dichoticCueVolume;
     el.dichoticCueValue.textContent = state.settings.dichoticCueVolume + '%';
+    el.dichoticVisualHelpToggle.checked = state.settings.dichoticVisualHelp;
+    el.dichoticVisualColor.value = state.settings.dichoticVisualColor;
     applyFeedbackBeepVolumeVisibility();
     applyDichoticCueVolumeVisibility();
     applyDichoticInstructionsVisibility();
+    applyDichoticVisualHelpVisibility();
     applyVoiceSelectVisibility();
     el.mobileToggle.checked = state.settings.mobileMode;
     el.zenToggle.checked = state.settings.zenMode;
@@ -2873,6 +3037,12 @@
       persistSettings();
     });
 
+    el.cctToggle.addEventListener('change', function () {
+      state.settings.cctMode = el.cctToggle.checked;
+      applyCctModeVisibility();
+      persistSettings();
+    });
+
     el.keysToggle.addEventListener('click', function (e) {
       var btn = e.target.closest('.seg-btn');
       if (!btn) return;
@@ -2924,6 +3094,7 @@
       state.settings.dichoticMode = el.dichoticToggle.checked;
       applyDichoticCueVolumeVisibility();
       applyDichoticInstructionsVisibility();
+      applyDichoticVisualHelpVisibility();
       applyVoiceSelectVisibility();
       persistSettings();
     });
@@ -2931,6 +3102,17 @@
     el.dichoticCueVolume.addEventListener('input', function () {
       state.settings.dichoticCueVolume = parseInt(el.dichoticCueVolume.value, 10);
       el.dichoticCueValue.textContent = state.settings.dichoticCueVolume + '%';
+      persistSettings();
+    });
+
+    el.dichoticVisualHelpToggle.addEventListener('change', function () {
+      state.settings.dichoticVisualHelp = el.dichoticVisualHelpToggle.checked;
+      applyDichoticVisualHelpVisibility();
+      persistSettings();
+    });
+
+    el.dichoticVisualColor.addEventListener('input', function () {
+      state.settings.dichoticVisualColor = el.dichoticVisualColor.value;
       persistSettings();
     });
 
@@ -3092,6 +3274,13 @@
     el.nbackLevelValue = q('nback-level-value');
     el.nbackInstructions = q('nback-instructions');
     el.nbackInstructionsLevel = q('nback-instructions-level');
+    el.cctToggle = q('cct-toggle');
+    el.responseRulesDefault = q('response-rules-default');
+    el.responseRulesCct = q('response-rules-cct');
+    el.hintMatchKeyCct = q('hint-match-key-cct');
+    el.hintNoMatchKeyCct = q('hint-nomatch-key-cct');
+    el.stopAccuracyLabel = q('stop-accuracy-label');
+    el.falseAlarmsCard = q('false-alarms-card');
     el.weightSum = q('weight-sum');
     el.weightPlusminus = q('weight-plusminus');
     el.weightStop = q('weight-stop');
@@ -3118,6 +3307,10 @@
     el.dichoticCueValue = q('dichotic-cue-value');
     el.testDichoticCueBtn = q('test-dichotic-cue-btn');
     el.dichoticInstructions = q('dichotic-instructions');
+    el.dichoticVisualHelpField = q('dichotic-visual-help-field');
+    el.dichoticVisualHelpToggle = q('dichotic-visual-help-toggle');
+    el.dichoticVisualColorField = q('dichotic-visual-color-field');
+    el.dichoticVisualColor = q('dichotic-visual-color');
     el.mobileToggle = q('mobile-toggle');
     el.zenToggle = q('zen-toggle');
     el.ewmtToggle = q('ewmt-toggle');
@@ -3143,6 +3336,8 @@
     el.endBtn = q('end-btn');
     el.numberDisplay = q('number-display');
     el.numberBgImage = q('number-bg-image');
+    el.dichoticVisualLeft = q('dichotic-visual-left');
+    el.dichoticVisualRight = q('dichotic-visual-right');
     el.hintLeft = q('hint-left');
     el.hintRight = q('hint-right');
     el.hintSkip = q('hint-skip');
