@@ -511,6 +511,24 @@
   .pause-panel .btn { margin-bottom: 10px; }
   .pause-panel .btn:last-child { margin-bottom: 0; }
 
+  /* ---------- Interruption mode: random black-screen "gotcha" ---------- */
+  /* True black (not var(--bg)) and above everything else on the play
+     screen, including the pause overlay (z-index 50) — the two are
+     mutually exclusive in practice (see triggerInterruption/pauseSession)
+     but this keeps the stacking order correct regardless. No transition:
+     the whole point is that it cuts in and out instantly, not fades. The
+     close button's top/left are set inline, per interruption, by
+     positionInterruptionCloseBtn (JS) to a random clamped position. */
+  .interruption-overlay {
+    position: fixed; inset: 0;
+    background: #000;
+    z-index: 100;
+  }
+  .interruption-close-btn {
+    position: absolute;
+    transform: translate(-50%, -50%);
+  }
+
   /* Zen mode: hides everything but the stimulus itself during play (top
      bar stats/controls, key hints). Mobile-mode's on-screen response
      buttons stay — they're the input, not informational chrome — as do
@@ -653,6 +671,10 @@
           </div>
           <div id="ewmt-instructions" class="hidden">
             <p><strong>eWMT mode</strong> — while the number is on screen, the square behind it also shows an image, drawn from whichever categories you've selected below. The image appears and disappears in step with the number itself; it has no effect on scoring. Pick <strong>Custom</strong> to draw from images you upload yourself — they're stored locally in this browser, not uploaded anywhere.</p>
+          </div>
+          <div id="interruption-instructions" class="hidden">
+            <p><strong>Interruption mode</strong> — at a random point, with no warning, the screen cuts to black, an alarm beep starts, and a <strong>Close</strong> button appears somewhere on it. Find it and press it to keep going.</p>
+            <p>Closing it picks the session back up right where you left off — your timer and accuracy aren't affected — but it <strong>breaks your streak</strong>, so getting caught out still costs you real progress toward your next speed-up.</p>
           </div>
         </div>
       </details>
@@ -828,6 +850,20 @@
         <label class="switch"><input type="checkbox" id="cct-toggle"><span class="switch-track"></span></label>
       </div>
 
+      <div class="field field-toggle">
+        <label for="interruption-toggle">Interruption mode <span class="dim">(random black-screen interruptions — breaks your streak)</span></label>
+        <label class="switch"><input type="checkbox" id="interruption-toggle"><span class="switch-track"></span></label>
+      </div>
+
+      <div class="field" id="interruption-level-field">
+        <label>Interruption frequency <span class="dim">(chance per trial)</span></label>
+        <div class="segmented" data-group="interruption-level">
+          <button type="button" class="seg-btn" data-value="low">Low · 10%</button>
+          <button type="button" class="seg-btn" data-value="mid">Mid · 25%</button>
+          <button type="button" class="seg-btn" data-value="max">Max · 40%</button>
+        </div>
+      </div>
+
       <details class="field field-dropdown" id="weights-dropdown">
         <summary class="field-dropdown-summary"><span class="field-dropdown-arrow" aria-hidden="true">▸</span>Number type probabilities</summary>
         <div class="field-dropdown-body">
@@ -918,6 +954,10 @@
         <button id="pause-end-btn" class="btn btn-danger-ghost btn-block">End session</button>
       </div>
     </div>
+
+    <div class="interruption-overlay hidden" id="interruption-overlay">
+      <button type="button" id="interruption-close-btn" class="btn btn-primary interruption-close-btn">Close</button>
+    </div>
   </section>
 
   <section id="report-screen" class="screen hidden">
@@ -972,6 +1012,13 @@
   var MAX_ISI = 10000;
   var MIN_NBACK_LEVEL = 2;
   var MAX_NBACK_LEVEL = 10;
+  // Interruption mode: chance per trial that an interruption fires, keyed
+  // by state.settings.interruptionLevel. See rollInterruption/
+  // triggerInterruption below.
+  var INTERRUPTION_CHANCE = { low: 0.10, mid: 0.25, max: 0.40 };
+  // How often the alarm beep repeats while an interruption is up (see
+  // triggerInterruption) — it keeps firing until "Close" is pressed.
+  var INTERRUPTION_BEEP_INTERVAL_MS = 550;
   var STORAGE_KEY = 'apasat_settings_v1';
   var HISTORY_STORAGE_KEY = 'apasat_history_v1';
   var HISTORY_MAX_ENTRIES = 500; // soft cap so the history log can't grow without bound
@@ -1280,7 +1327,16 @@
     // colors half the screen to match the currently-targeted ear,
     // alongside the existing switch-cue beep. See updateDichoticVisualCue.
     dichoticVisualHelp: false,
-    dichoticVisualColor: '#f0a94e'
+    dichoticVisualColor: '#f0a94e',
+    // Interruption mode (optional, off by default): each trial has a
+    // chance — see INTERRUPTION_CHANCE — to cut the screen to black with
+    // an alarm beep repeating until "Close" is found and pressed. Closing
+    // it resumes the session right where it left off — timer and accuracy
+    // untouched, same as an ordinary pause — except correctStreak/
+    // incorrectStreak above get zeroed; that's the actual "streak break".
+    // See triggerInterruption/closeInterruption.
+    interruptionMode: false,
+    interruptionLevel: 'low' // 'low' | 'mid' | 'max' — see INTERRUPTION_CHANCE
   };
 
   // ============================================================
@@ -1381,7 +1437,9 @@
       ewmtNewImageEachTrial: s.ewmtNewImageEachTrial === undefined ? DEFAULT_SETTINGS.ewmtNewImageEachTrial : !!s.ewmtNewImageEachTrial,
       cctMode: !!s.cctMode,
       dichoticVisualHelp: !!s.dichoticVisualHelp,
-      dichoticVisualColor: sanitizeHexColor(s.dichoticVisualColor, DEFAULT_SETTINGS.dichoticVisualColor)
+      dichoticVisualColor: sanitizeHexColor(s.dichoticVisualColor, DEFAULT_SETTINGS.dichoticVisualColor),
+      interruptionMode: !!s.interruptionMode,
+      interruptionLevel: (s.interruptionLevel === 'mid' || s.interruptionLevel === 'max') ? s.interruptionLevel : DEFAULT_SETTINGS.interruptionLevel
     };
   }
 
@@ -1461,6 +1519,14 @@
     results: [],
     paused: false,
     pausedAt: 0,
+    // Interruption mode: true from the moment the black-screen overlay
+    // shows until "Close" is pressed, at which point it resumes the
+    // session in place (see triggerInterruption/closeInterruption) rather
+    // than restarting it — interruptedAt is what lets closeInterruption
+    // push sessionEndAt forward by however long the blackout lasted, the
+    // same way pausedAt does for an ordinary pause.
+    interrupted: false,
+    interruptedAt: 0,
     nextTrialAudioTime: 0,
     showStimulusAt: null,
     hideStimulusAt: null,
@@ -1480,6 +1546,7 @@
   var hideTimerId = null;
   var dichoticVisualTimerId = null;
   var countdownIntervalId = null;
+  var interruptionBeepIntervalId = null; // repeating alarm while an interruption is up — see triggerInterruption/closeInterruption
   var audioCtx = null;
   var ticker = null; // scheduler "tick" source - a Worker when available, else a plain interval
 
@@ -2145,6 +2212,88 @@
   }
 
   // ============================================================
+  // Interruption mode — a random, no-warning "gotcha": the screen cuts to
+  // black, an alarm beep starts repeating, and a Close button appears
+  // somewhere on the screen. Closing it resumes the session right where
+  // it left off — timer and accuracy carry on exactly like an ordinary
+  // pause/resume (see closeInterruption) — except correctStreak/
+  // incorrectStreak get zeroed, which is the actual "streak break".
+  // Rolled once per trial from prepareAndScheduleTrial, before that
+  // trial's audio is scheduled, so there's never a trial half-displayed
+  // when this fires — just the trial sequence picking back up on resume.
+  // ============================================================
+  function rollInterruption() {
+    var chance = INTERRUPTION_CHANCE[state.settings.interruptionLevel];
+    return Math.random() < (chance || 0);
+  }
+
+  // Places the Close button at a random spot, clamped so it's never
+  // clipped by the viewport edge regardless of screen size.
+  function positionInterruptionCloseBtn() {
+    var top = 12 + Math.random() * 76;  // 12%-88% of viewport height
+    var left = 12 + Math.random() * 76; // 12%-88% of viewport width
+    el.interruptionCloseBtn.style.top = top + '%';
+    el.interruptionCloseBtn.style.left = left + '%';
+  }
+
+  function triggerInterruption() {
+    state.interrupted = true;
+    state.interruptedAt = performance.now();
+    clearTimeout(showTimerId);
+    clearTimeout(hideTimerId);
+    clearTimeout(dichoticVisualTimerId);
+    clearInterval(countdownIntervalId);
+    stopAllPendingAudio();
+    // Nothing was actually on screen when this fired (see comment above),
+    // so there's nothing to resume into — clear these rather than let a
+    // stale show/hide time from the prior trial leak into the resume.
+    state.showStimulusAt = null;
+    state.hideStimulusAt = null;
+    showPlaceholder();
+    hideDichoticVisualCue();
+    positionInterruptionCloseBtn();
+    el.interruptionOverlay.classList.remove('hidden');
+    el.interruptionCloseBtn.focus();
+
+    // Alarm beep — the same tone as the wrong-answer feedback beep (see
+    // playBeep/evaluateTrial), repeating for as long as the black screen
+    // stays up rather than firing once. Stopped only in closeInterruption.
+    playBeep(state.settings.feedbackBeepVolume / 100);
+    clearInterval(interruptionBeepIntervalId);
+    interruptionBeepIntervalId = setInterval(function () {
+      playBeep(state.settings.feedbackBeepVolume / 100);
+    }, INTERRUPTION_BEEP_INTERVAL_MS);
+  }
+
+  // The only way out — a soft resume, not a session restart. Timer and
+  // accuracy carry on from where the interruption caught them: sessionEndAt
+  // is nudged forward by however long the black screen was up, exactly
+  // like resumeSession does for an ordinary pause, so the interruption
+  // itself doesn't eat into session time. The ticker was never stopped
+  // (same idea as pauseSession — schedulerCheck's own guard is what makes
+  // it a no-op while state.interrupted is true), so it picks the trial
+  // sequence back up on its own within one tick of state.interrupted
+  // flipping back to false. The one thing that doesn't carry over is the
+  // streak: correctStreak/incorrectStreak are zeroed right here, which is
+  // what actually "breaks" it.
+  function closeInterruption() {
+    clearInterval(interruptionBeepIntervalId);
+    interruptionBeepIntervalId = null;
+    el.interruptionOverlay.classList.add('hidden');
+
+    state.sessionEndAt += performance.now() - state.interruptedAt;
+    state.correctStreak = 0;
+    state.incorrectStreak = 0;
+    state.interrupted = false;
+
+    if (audioCtx) { try { audioCtx.resume(); } catch (e) {} }
+    state.nextTrialAudioTime = (audioCtx ? audioCtx.currentTime : 0) + 0.05;
+    updateDichoticVisualCue(state.dichotic.targetEar); // restores the half-screen cue if dichotic visual help is on — see hideDichoticVisualCue above
+    updateCountdownDisplay();
+    countdownIntervalId = setInterval(updateCountdownDisplay, 250);
+  }
+
+  // ============================================================
   // Trial engine — lookahead audio scheduler.
   //
   // Trial content (which digit(s), CCT judgment, dichotic bookkeeping) is
@@ -2162,7 +2311,7 @@
   // precision the way audio onset does.
   // ============================================================
   function schedulerCheck() {
-    if (state.screen !== 'playing' || state.paused || !audioCtx) return;
+    if (state.screen !== 'playing' || state.paused || state.interrupted || !audioCtx) return;
     // If we fell far behind (e.g. the tab was frozen/throttled), jump the
     // schedule forward instead of bursting through every trial that was
     // technically "due" while nothing was running.
@@ -2173,6 +2322,7 @@
     while (state.nextTrialAudioTime < audioCtx.currentTime + SCHEDULE_LOOKAHEAD_SEC && guard < 8) {
       prepareAndScheduleTrial();
       guard++;
+      if (state.interrupted) return; // don't keep looping into a trial that was just interrupted
     }
   }
 
@@ -2183,6 +2333,13 @@
     // Step 2: stop here if time's up.
     if (performance.now() >= state.sessionEndAt) {
       endSession();
+      return;
+    }
+
+    // Step 2b: interruption mode — roll before committing to the next
+    // trial, so a firing interruption never leaves a trial half-scheduled.
+    if (state.settings.interruptionMode && rollInterruption()) {
+      triggerInterruption();
       return;
     }
 
@@ -2348,7 +2505,7 @@
   // Response handling
   // ============================================================
   function handleResponse(type) {
-    if (state.screen !== 'playing' || state.paused) return;
+    if (state.screen !== 'playing' || state.paused || state.interrupted) return;
     if (!currentTrial || currentTrial.stimulusType === null || currentTrial.hasResponded) return;
     if (!currentTrial.stimulusShown) return; // ignore presses before the number has actually appeared
     currentTrial.hasResponded = true;
@@ -2376,7 +2533,7 @@
   }
 
   document.addEventListener('keydown', function (e) {
-    if (state.screen !== 'playing' || state.paused) return;
+    if (state.screen !== 'playing' || state.paused || state.interrupted) return;
     if (e.repeat) return;
     if (e.key === 'Escape') { e.preventDefault(); pauseSession(); return; }
     if (state.settings.spacebarSkip && (e.code === 'Space' || e.key === ' ')) {
@@ -2438,6 +2595,7 @@
     clearTimeout(showTimerId);
     clearTimeout(hideTimerId);
     clearInterval(countdownIntervalId);
+    clearInterval(interruptionBeepIntervalId);
     stopAllPendingAudio();
 
     state.currentISI = state.settings.dichoticMode
@@ -2456,6 +2614,7 @@
     state.digitHistory = [];
     state.results = [];
     state.paused = false;
+    state.interrupted = false;
     state.showStimulusAt = null;
     state.hideStimulusAt = null;
     currentTrial = null;
@@ -2480,6 +2639,7 @@
     hideDichoticVisualCue(); // clear any color left over from a previous session; trial 1's switch lights the right side moments later
 
     el.pauseOverlay.classList.add('hidden');
+    el.interruptionOverlay.classList.add('hidden');
 
     state.sessionEndAt = performance.now() + state.settings.durationSec * 1000;
 
@@ -2500,7 +2660,7 @@
   }
 
   function pauseSession() {
-    if (state.screen !== 'playing' || state.paused) return;
+    if (state.screen !== 'playing' || state.paused || state.interrupted) return;
     state.paused = true;
     state.pausedAt = performance.now();
     clearTimeout(showTimerId);
@@ -2537,6 +2697,7 @@
   }
 
   function endSession() {
+    if (state.interrupted) return; // an active interruption always resolves via closeInterruption, never this
     evaluateTrial(currentTrial); // make sure the last in-flight trial is scored
     stopTicker();
     clearTimeout(showTimerId);
@@ -2587,6 +2748,8 @@
       nBackLevel: state.settings.nBackLevel,
       ewmtMode: state.settings.ewmtMode,
       cctMode: state.settings.cctMode,
+      interruptionMode: state.settings.interruptionMode,
+      interruptionLevel: state.settings.interruptionLevel,
       durationSec: state.settings.durationSec,
       finalSpeedMs: state.currentISI,
       fastestSpeedMs: state.fastestISI,
@@ -2688,6 +2851,10 @@
       if (rec.nBackMode) tagParts.push(rec.nBackLevel + '-back');
       if (rec.ewmtMode) tagParts.push('eWMT');
       if (rec.cctMode) tagParts.push('CCT');
+      if (rec.interruptionMode) {
+        var lvl = rec.interruptionLevel ? (rec.interruptionLevel.charAt(0).toUpperCase() + rec.interruptionLevel.slice(1)) : '';
+        tagParts.push('Interrupt · ' + lvl);
+      }
       tagParts.push((Math.round(rec.durationSec / 6) / 10) + ' min');
       tagsEl.textContent = tagParts.join(' · ');
 
@@ -2787,6 +2954,13 @@
     el.responseRulesCct.classList.toggle('hidden', !state.settings.cctMode);
     applyStopRequiresSpacebarFieldVisibility();
     applySpacebarSkipInstructionsVisibility();
+  }
+
+  // The frequency picker (and its instructions blurb) only mean anything
+  // once interruption mode itself is on — same idea as applyNBackFieldVisibility.
+  function applyInterruptionFieldVisibility() {
+    el.interruptionLevelField.classList.toggle('hidden', !state.settings.interruptionMode);
+    el.interruptionInstructions.classList.toggle('hidden', !state.settings.interruptionMode);
   }
 
   // Now that feedback and dichotic each have their own volume slider (see
@@ -2910,6 +3084,10 @@
 
     el.cctToggle.checked = state.settings.cctMode;
     applyCctModeVisibility();
+
+    el.interruptionToggle.checked = state.settings.interruptionMode;
+    setSegmented(el.interruptionLevelGroup, state.settings.interruptionLevel);
+    applyInterruptionFieldVisibility();
 
     el.weightSum.value = state.settings.stimulusWeights.sum;
     el.weightPlusminus.value = state.settings.stimulusWeights.plusminus;
@@ -3040,6 +3218,20 @@
     el.cctToggle.addEventListener('change', function () {
       state.settings.cctMode = el.cctToggle.checked;
       applyCctModeVisibility();
+      persistSettings();
+    });
+
+    el.interruptionToggle.addEventListener('change', function () {
+      state.settings.interruptionMode = el.interruptionToggle.checked;
+      applyInterruptionFieldVisibility();
+      persistSettings();
+    });
+
+    el.interruptionLevelGroup.addEventListener('click', function (e) {
+      var btn = e.target.closest('.seg-btn');
+      if (!btn) return;
+      state.settings.interruptionLevel = btn.getAttribute('data-value');
+      setSegmented(el.interruptionLevelGroup, state.settings.interruptionLevel);
       persistSettings();
     });
 
@@ -3226,6 +3418,7 @@
     el.mobilePositiveBtn.addEventListener('click', function () { handleResponse('positive'); });
     el.mobileNegativeBtn.addEventListener('click', function () { handleResponse('negative'); });
     el.zenPauseBtn.addEventListener('click', pauseSession);
+    el.interruptionCloseBtn.addEventListener('click', closeInterruption);
   }
 
   function wireReport() {
@@ -3275,6 +3468,10 @@
     el.nbackInstructions = q('nback-instructions');
     el.nbackInstructionsLevel = q('nback-instructions-level');
     el.cctToggle = q('cct-toggle');
+    el.interruptionToggle = q('interruption-toggle');
+    el.interruptionLevelField = q('interruption-level-field');
+    el.interruptionLevelGroup = document.querySelector('[data-group="interruption-level"]');
+    el.interruptionInstructions = q('interruption-instructions');
     el.responseRulesDefault = q('response-rules-default');
     el.responseRulesCct = q('response-rules-cct');
     el.hintMatchKeyCct = q('hint-match-key-cct');
@@ -3348,6 +3545,8 @@
     el.resumeBtn = q('resume-btn');
     el.pauseEndBtn = q('pause-end-btn');
     el.zenPauseBtn = q('zen-pause-btn');
+    el.interruptionOverlay = q('interruption-overlay');
+    el.interruptionCloseBtn = q('interruption-close-btn');
 
     el.overallAccuracyValue = q('overall-accuracy-value');
     el.sumAccuracy = q('sum-accuracy');
