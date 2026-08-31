@@ -674,7 +674,7 @@
           </div>
           <div id="interruption-instructions" class="hidden">
             <p><strong>Interruption mode</strong> — at a random point, with no warning, the screen cuts to black, an alarm beep starts, and a <strong>Close</strong> button appears somewhere on it. Find it and press it to keep going.</p>
-            <p>Closing it picks the session back up right where you left off — your timer and accuracy aren't affected — but it <strong>breaks your streak</strong>, so getting caught out still costs you real progress toward your next speed-up.</p>
+            <p>Closing it picks the session back up right where you left off — your timer and accuracy aren't affected. Whether it also <strong>breaks your streak</strong> — costing you progress toward your next speed-up, and your longest streak for the session — is up to the toggle below.</p>
           </div>
         </div>
       </details>
@@ -850,18 +850,35 @@
         <label class="switch"><input type="checkbox" id="cct-toggle"><span class="switch-track"></span></label>
       </div>
 
+      <div class="field" id="cct-beep-volume-field">
+        <label>CCT beep volume <span class="readout" id="cct-beep-value"></span></label>
+        <div class="volume-row">
+          <input type="range" id="cct-beep-volume" min="0" max="100" step="5">
+          <button type="button" id="test-cct-beep-btn" class="btn btn-ghost btn-sm">Test</button>
+        </div>
+      </div>
+
       <div class="field field-toggle">
-        <label for="interruption-toggle">Interruption mode <span class="dim">(random black-screen interruptions — breaks your streak)</span></label>
+        <label for="interruption-toggle">Interruption mode <span class="dim">(random black-screen interruptions)</span></label>
         <label class="switch"><input type="checkbox" id="interruption-toggle"><span class="switch-track"></span></label>
       </div>
 
-      <div class="field" id="interruption-level-field">
-        <label>Interruption frequency <span class="dim">(chance per trial)</span></label>
-        <div class="segmented" data-group="interruption-level">
-          <button type="button" class="seg-btn" data-value="low">Low · 10%</button>
-          <button type="button" class="seg-btn" data-value="mid">Mid · 25%</button>
-          <button type="button" class="seg-btn" data-value="max">Max · 40%</button>
+      <div class="field" id="interruption-chance-field">
+        <label>Interruption frequency <span class="readout" id="interruption-chance-value"></span> <span class="dim">chance per trial</span></label>
+        <input type="range" id="interruption-chance-slider" min="1" max="100" step="1">
+      </div>
+
+      <div class="field" id="interruption-beep-volume-field">
+        <label>Interruption beep volume <span class="readout" id="interruption-beep-value"></span></label>
+        <div class="volume-row">
+          <input type="range" id="interruption-beep-volume" min="0" max="100" step="5">
+          <button type="button" id="test-interruption-beep-btn" class="btn btn-ghost btn-sm">Test</button>
         </div>
+      </div>
+
+      <div class="field field-toggle" id="interruption-breaks-streak-field">
+        <label for="interruption-breaks-streak-toggle">Interruption breaks streak <span class="dim">(off = interruptions don't cost you progress)</span></label>
+        <label class="switch"><input type="checkbox" id="interruption-breaks-streak-toggle"><span class="switch-track"></span></label>
       </div>
 
       <details class="field field-dropdown" id="weights-dropdown">
@@ -979,6 +996,7 @@
         <div class="stat-card hidden" id="fastest-speed-card"><div class="value mono" id="fastest-speed">–</div><div class="label">Fastest speed</div></div>
         <div class="stat-card hidden" id="slowest-speed-card"><div class="value mono" id="slowest-speed">–</div><div class="label">Slowest speed</div></div>
         <div class="stat-card"><div class="value mono" id="total-trials">–</div><div class="label">Total trials</div></div>
+        <div class="stat-card" id="longest-streak-card"><div class="value mono" id="longest-streak">–</div><div class="label">Longest streak</div></div>
       </div>
 
       <button id="back-to-menu-btn" class="btn btn-primary btn-block">Back to menu</button>
@@ -1012,10 +1030,11 @@
   var MAX_ISI = 10000;
   var MIN_NBACK_LEVEL = 2;
   var MAX_NBACK_LEVEL = 10;
-  // Interruption mode: chance per trial that an interruption fires, keyed
-  // by state.settings.interruptionLevel. See rollInterruption/
+  // Interruption mode's chance per trial (state.settings.interruptionChance,
+  // a plain 1-100 percent) and its own alarm volume
+  // (state.settings.interruptionBeepVolume) are both plain settings now,
+  // not lookup tables — see sanitizeSettings/rollInterruption/
   // triggerInterruption below.
-  var INTERRUPTION_CHANCE = { low: 0.10, mid: 0.25, max: 0.40 };
   // How often the alarm beep repeats while an interruption is up (see
   // triggerInterruption) — it keeps firing until "Close" is pressed.
   var INTERRUPTION_BEEP_INTERVAL_MS = 550;
@@ -1275,6 +1294,11 @@
     instantFeedback: true,
     feedbackBeepVolume: 50,
     dichoticCueVolume: 50,
+    // CCT mode's own volume for the same wrong-answer beep — see
+    // evaluateTrial/applyFeedbackBeepVolumeVisibility. Split out because
+    // CCT scores every trial, so this beep can fire far more often there
+    // than feedbackBeepVolume's beep does in normal mode.
+    cctBeepVolume: 50,
     voice: 'male',       // which pre-recorded voice speaks in non-dichotic mode ('male' | 'female'); dichotic mode always uses both
     mobileMode: false,
     dichoticMode: false,
@@ -1329,14 +1353,18 @@
     dichoticVisualHelp: false,
     dichoticVisualColor: '#f0a94e',
     // Interruption mode (optional, off by default): each trial has a
-    // chance — see INTERRUPTION_CHANCE — to cut the screen to black with
-    // an alarm beep repeating until "Close" is found and pressed. Closing
-    // it resumes the session right where it left off — timer and accuracy
-    // untouched, same as an ordinary pause — except correctStreak/
-    // incorrectStreak above get zeroed; that's the actual "streak break".
+    // chance — interruptionChance, a plain percent — to cut the screen to
+    // black with an alarm beep (at its own interruptionBeepVolume)
+    // repeating until "Close" is found and pressed. Closing it resumes
+    // the session right where it left off — timer and accuracy untouched,
+    // same as an ordinary pause. Whether it also zeroes
+    // correctStreak/incorrectStreak/currentStreak (the actual "streak
+    // break") is up to interruptionBreaksStreak below, defaulted to true.
     // See triggerInterruption/closeInterruption.
     interruptionMode: false,
-    interruptionLevel: 'low' // 'low' | 'mid' | 'max' — see INTERRUPTION_CHANCE
+    interruptionChance: 10, // percent chance per trial, 1-100 — see rollInterruption
+    interruptionBeepVolume: 50,
+    interruptionBreaksStreak: true
   };
 
   // ============================================================
@@ -1408,6 +1436,20 @@
     if (isNaN(feedbackVol)) feedbackVol = legacyVol;
     var dichoticVol = parseInt(s.dichoticCueVolume, 10);
     if (isNaN(dichoticVol)) dichoticVol = legacyVol;
+    var cctVol = parseInt(s.cctBeepVolume, 10);
+    var interruptionBeepVol = parseInt(s.interruptionBeepVolume, 10);
+    // Upgrade path: before this got its own slider, the interruption
+    // alarm just reused feedbackBeepVolume — fall back to that instead
+    // of resetting an existing save to the default.
+    if (isNaN(interruptionBeepVol)) interruptionBeepVol = feedbackVol;
+    var interruptionChance = parseInt(s.interruptionChance, 10);
+    if (isNaN(interruptionChance)) {
+      // Upgrade path from the old 3-tier picker (low/mid/max) to a raw
+      // percent, so an existing save doesn't silently reset to the
+      // slider's default.
+      var legacyChance = { low: 10, mid: 25, max: 40 }[s.interruptionLevel];
+      interruptionChance = legacyChance === undefined ? DEFAULT_SETTINGS.interruptionChance : legacyChance;
+    }
     var floorMs = parseInt(s.adaptiveFloorMs, 10);
     var ceilingMs = parseInt(s.adaptiveCeilingMs, 10);
     var nBackLevel = parseInt(s.nBackLevel, 10);
@@ -1419,6 +1461,7 @@
       instantFeedback: s.instantFeedback === undefined ? DEFAULT_SETTINGS.instantFeedback : !!s.instantFeedback,
       feedbackBeepVolume: clamp(isNaN(feedbackVol) ? DEFAULT_SETTINGS.feedbackBeepVolume : feedbackVol, 0, 100),
       dichoticCueVolume: clamp(isNaN(dichoticVol) ? DEFAULT_SETTINGS.dichoticCueVolume : dichoticVol, 0, 100),
+      cctBeepVolume: clamp(isNaN(cctVol) ? DEFAULT_SETTINGS.cctBeepVolume : cctVol, 0, 100),
       voice: s.voice === 'female' ? 'female' : 'male',
       mobileMode: !!s.mobileMode,
       dichoticMode: !!s.dichoticMode,
@@ -1439,7 +1482,9 @@
       dichoticVisualHelp: !!s.dichoticVisualHelp,
       dichoticVisualColor: sanitizeHexColor(s.dichoticVisualColor, DEFAULT_SETTINGS.dichoticVisualColor),
       interruptionMode: !!s.interruptionMode,
-      interruptionLevel: (s.interruptionLevel === 'mid' || s.interruptionLevel === 'max') ? s.interruptionLevel : DEFAULT_SETTINGS.interruptionLevel
+      interruptionChance: clamp(interruptionChance, 1, 100),
+      interruptionBeepVolume: clamp(isNaN(interruptionBeepVol) ? DEFAULT_SETTINGS.interruptionBeepVolume : interruptionBeepVol, 0, 100),
+      interruptionBreaksStreak: s.interruptionBreaksStreak === undefined ? DEFAULT_SETTINGS.interruptionBreaksStreak : !!s.interruptionBreaksStreak
     };
   }
 
@@ -1506,6 +1551,15 @@
     slowestISI: null,
     correctStreak: 0,
     incorrectStreak: 0,
+    // The player-facing streak: consecutive correct answers, uninterrupted
+    // by a wrong answer or (when interruptionBreaksStreak is on) an
+    // interruption — see evaluateTrial/closeInterruption. Deliberately
+    // separate from correctStreak above, which cycles back to 0 every 4
+    // in adaptive mode to trigger a speed-up and would understate a much
+    // longer true run. longestStreak is currentStreak's session peak,
+    // shown on the report screen.
+    currentStreak: 0,
+    longestStreak: 0,
     // Chronological list of past "attended" digits this session — the
     // ones that actually count for the sum, in both normal mode (every
     // digit) and dichotic mode (only from whichever ear is currently
@@ -2155,6 +2209,8 @@
     if (correct) {
       state.correctStreak++;
       state.incorrectStreak = 0;
+      state.currentStreak++;
+      if (state.currentStreak > state.longestStreak) state.longestStreak = state.currentStreak;
       if (state.settings.mode === 'adaptive' && state.correctStreak >= 4) {
         var bounds = getAdaptiveBounds();
         state.currentISI = Math.max(bounds.floor, state.currentISI - 100);
@@ -2165,6 +2221,7 @@
     } else {
       state.incorrectStreak++;
       state.correctStreak = 0;
+      state.currentStreak = 0;
       if (state.settings.mode === 'adaptive' && state.incorrectStreak >= 4) {
         var bounds = getAdaptiveBounds();
         state.currentISI = Math.min(bounds.ceiling, state.currentISI + 100);
@@ -2174,9 +2231,16 @@
       }
     }
 
-    // Instant feedback: a beep on incorrect responses only, once per trial, right here at trial end.
+    // Instant feedback: a beep on incorrect responses only, once per trial,
+    // right here at trial end. CCT mode uses its own volume (cctBeepVolume)
+    // rather than feedbackBeepVolume — see applyFeedbackBeepVolumeVisibility
+    // — since CCT's every-trial-scored design means this beep can fire far
+    // more often than it would in normal mode.
     if (state.settings.instantFeedback) {
-      if (!correct) playBeep(state.settings.feedbackBeepVolume / 100);
+      if (!correct) {
+        var beepVol = state.settings.cctMode ? state.settings.cctBeepVolume : state.settings.feedbackBeepVolume;
+        playBeep(beepVol / 100);
+      }
     }
   }
 
@@ -2223,8 +2287,7 @@
   // when this fires — just the trial sequence picking back up on resume.
   // ============================================================
   function rollInterruption() {
-    var chance = INTERRUPTION_CHANCE[state.settings.interruptionLevel];
-    return Math.random() < (chance || 0);
+    return Math.random() < (state.settings.interruptionChance / 100);
   }
 
   // Places the Close button at a random spot, clamped so it's never
@@ -2256,12 +2319,14 @@
     el.interruptionCloseBtn.focus();
 
     // Alarm beep — the same tone as the wrong-answer feedback beep (see
-    // playBeep/evaluateTrial), repeating for as long as the black screen
-    // stays up rather than firing once. Stopped only in closeInterruption.
-    playBeep(state.settings.feedbackBeepVolume / 100);
+    // playBeep/evaluateTrial), just at its own interruptionBeepVolume
+    // rather than feedbackBeepVolume, repeating for as long as the black
+    // screen stays up rather than firing once. Stopped only in
+    // closeInterruption.
+    playBeep(state.settings.interruptionBeepVolume / 100);
     clearInterval(interruptionBeepIntervalId);
     interruptionBeepIntervalId = setInterval(function () {
-      playBeep(state.settings.feedbackBeepVolume / 100);
+      playBeep(state.settings.interruptionBeepVolume / 100);
     }, INTERRUPTION_BEEP_INTERVAL_MS);
   }
 
@@ -2273,17 +2338,22 @@
   // (same idea as pauseSession — schedulerCheck's own guard is what makes
   // it a no-op while state.interrupted is true), so it picks the trial
   // sequence back up on its own within one tick of state.interrupted
-  // flipping back to false. The one thing that doesn't carry over is the
-  // streak: correctStreak/incorrectStreak are zeroed right here, which is
-  // what actually "breaks" it.
+  // flipping back to false. Whether the streak survives is up to
+  // interruptionBreaksStreak: when it's on, correctStreak/incorrectStreak
+  // AND the true-streak pair (currentStreak/longestStreak — see
+  // evaluateTrial) are all zeroed right here, which is what "breaks" it;
+  // when it's off, none of the four are touched.
   function closeInterruption() {
     clearInterval(interruptionBeepIntervalId);
     interruptionBeepIntervalId = null;
     el.interruptionOverlay.classList.add('hidden');
 
     state.sessionEndAt += performance.now() - state.interruptedAt;
-    state.correctStreak = 0;
-    state.incorrectStreak = 0;
+    if (state.settings.interruptionBreaksStreak) {
+      state.correctStreak = 0;
+      state.incorrectStreak = 0;
+      state.currentStreak = 0;
+    }
     state.interrupted = false;
 
     if (audioCtx) { try { audioCtx.resume(); } catch (e) {} }
@@ -2611,6 +2681,8 @@
     state.slowestISI = state.currentISI;
     state.correctStreak = 0;
     state.incorrectStreak = 0;
+    state.currentStreak = 0;
+    state.longestStreak = 0;
     state.digitHistory = [];
     state.results = [];
     state.paused = false;
@@ -2749,7 +2821,8 @@
       ewmtMode: state.settings.ewmtMode,
       cctMode: state.settings.cctMode,
       interruptionMode: state.settings.interruptionMode,
-      interruptionLevel: state.settings.interruptionLevel,
+      interruptionChance: state.settings.interruptionChance,
+      interruptionBreaksStreak: state.settings.interruptionBreaksStreak,
       durationSec: state.settings.durationSec,
       finalSpeedMs: state.currentISI,
       fastestSpeedMs: state.fastestISI,
@@ -2759,7 +2832,8 @@
       byType: byType,
       avgRtMs: avgRt,
       misses: misses,
-      falseAlarms: falseAlarms
+      falseAlarms: falseAlarms,
+      longestStreak: state.longestStreak
     };
   }
 
@@ -2780,6 +2854,15 @@
     el.falseAlarmsCount.textContent = stats.falseAlarms;
     el.finalSpeed.textContent = stats.finalSpeedMs + ' ms';
     el.totalTrials.textContent = stats.totalTrials;
+
+    // Longest streak is a fair "how well did you actually do" number only
+    // when nothing external was allowed to cut a run short — if
+    // interruptions were on AND set to break the streak, a low number
+    // here would reflect bad luck getting caught out, not bad play, so
+    // the card is hidden rather than showing a misleading figure.
+    var streakIsMeaningful = !(stats.interruptionMode && stats.interruptionBreaksStreak);
+    el.longestStreakCard.classList.toggle('hidden', !streakIsMeaningful);
+    if (streakIsMeaningful) el.longestStreak.textContent = stats.longestStreak;
 
     // CCT mode has no withhold trials, so "Withhold trials" is the wrong
     // label for what stop-accuracy is now measuring (still a real, useful
@@ -2852,8 +2935,13 @@
       if (rec.ewmtMode) tagParts.push('eWMT');
       if (rec.cctMode) tagParts.push('CCT');
       if (rec.interruptionMode) {
-        var lvl = rec.interruptionLevel ? (rec.interruptionLevel.charAt(0).toUpperCase() + rec.interruptionLevel.slice(1)) : '';
-        tagParts.push('Interrupt · ' + lvl);
+        // Older history entries (from before the frequency picker became
+        // a slider) stored a 'low'/'mid'/'max' tier instead of a raw
+        // percent — same mapping sanitizeSettings uses to upgrade a
+        // saved setting, just applied here for display.
+        var pct = rec.interruptionChance;
+        if (pct === undefined) pct = { low: 10, mid: 25, max: 40 }[rec.interruptionLevel];
+        if (pct !== undefined) tagParts.push('Interrupt · ' + pct + '%');
       }
       tagParts.push((Math.round(rec.durationSec / 6) / 10) + ' min');
       tagsEl.textContent = tagParts.join(' · ');
@@ -2948,26 +3036,37 @@
   // withhold) into 2 (match / no-match), since pickStimulus no longer
   // ever produces a withhold-correct trial once it's on. The two settings
   // this interacts with (stop-requires-spacebar) get re-checked here too,
-  // since either one flipping can affect the other's visibility.
+  // since either one flipping can affect the other's visibility. CCT also
+  // swaps which beep-volume slider applies (see
+  // applyFeedbackBeepVolumeVisibility), so that gets re-checked here too.
   function applyCctModeVisibility() {
     el.responseRulesDefault.classList.toggle('hidden', state.settings.cctMode);
     el.responseRulesCct.classList.toggle('hidden', !state.settings.cctMode);
     applyStopRequiresSpacebarFieldVisibility();
     applySpacebarSkipInstructionsVisibility();
+    applyFeedbackBeepVolumeVisibility();
   }
 
-  // The frequency picker (and its instructions blurb) only mean anything
-  // once interruption mode itself is on — same idea as applyNBackFieldVisibility.
+  // The frequency slider, the beep-volume slider, the "breaks streak"
+  // toggle, and the instructions blurb only mean anything once
+  // interruption mode itself is on — same idea as
+  // applyNBackFieldVisibility.
   function applyInterruptionFieldVisibility() {
-    el.interruptionLevelField.classList.toggle('hidden', !state.settings.interruptionMode);
+    el.interruptionChanceField.classList.toggle('hidden', !state.settings.interruptionMode);
+    el.interruptionBeepVolumeField.classList.toggle('hidden', !state.settings.interruptionMode);
+    el.interruptionBreaksStreakField.classList.toggle('hidden', !state.settings.interruptionMode);
     el.interruptionInstructions.classList.toggle('hidden', !state.settings.interruptionMode);
   }
 
-  // Now that feedback and dichotic each have their own volume slider (see
-  // the settings split above), each field's visibility just tracks its
-  // own toggle directly instead of either-or.
+  // Feedback and dichotic each have their own volume slider (see the
+  // settings split above), and CCT mode splits the feedback slider itself
+  // in two — same wrong-answer beep (see evaluateTrial), different volume,
+  // since CCT's every-trial-scored design means it can fire far more often
+  // there than in normal mode. So exactly one of the two shows at a time,
+  // and only once instantFeedback itself is on.
   function applyFeedbackBeepVolumeVisibility() {
-    el.feedbackBeepVolumeField.classList.toggle('hidden', !state.settings.instantFeedback);
+    el.feedbackBeepVolumeField.classList.toggle('hidden', !state.settings.instantFeedback || state.settings.cctMode);
+    el.cctBeepVolumeField.classList.toggle('hidden', !state.settings.instantFeedback || !state.settings.cctMode);
   }
 
   // Dichotic mode's switch cue tone is functionally required, not
@@ -3083,10 +3182,16 @@
     applyNBackFieldVisibility();
 
     el.cctToggle.checked = state.settings.cctMode;
+    el.cctBeepVolume.value = state.settings.cctBeepVolume;
+    el.cctBeepValue.textContent = state.settings.cctBeepVolume + '%';
     applyCctModeVisibility();
 
     el.interruptionToggle.checked = state.settings.interruptionMode;
-    setSegmented(el.interruptionLevelGroup, state.settings.interruptionLevel);
+    el.interruptionChanceSlider.value = state.settings.interruptionChance;
+    el.interruptionChanceValue.textContent = state.settings.interruptionChance + '%';
+    el.interruptionBeepVolume.value = state.settings.interruptionBeepVolume;
+    el.interruptionBeepValue.textContent = state.settings.interruptionBeepVolume + '%';
+    el.interruptionBreaksStreakToggle.checked = state.settings.interruptionBreaksStreak;
     applyInterruptionFieldVisibility();
 
     el.weightSum.value = state.settings.stimulusWeights.sum;
@@ -3221,17 +3326,42 @@
       persistSettings();
     });
 
+    el.cctBeepVolume.addEventListener('input', function () {
+      state.settings.cctBeepVolume = parseInt(el.cctBeepVolume.value, 10);
+      el.cctBeepValue.textContent = state.settings.cctBeepVolume + '%';
+      persistSettings();
+    });
+
+    el.testCctBeepBtn.addEventListener('click', function () {
+      ensureAudioContext();
+      playBeep(state.settings.cctBeepVolume / 100);
+    });
+
     el.interruptionToggle.addEventListener('change', function () {
       state.settings.interruptionMode = el.interruptionToggle.checked;
       applyInterruptionFieldVisibility();
       persistSettings();
     });
 
-    el.interruptionLevelGroup.addEventListener('click', function (e) {
-      var btn = e.target.closest('.seg-btn');
-      if (!btn) return;
-      state.settings.interruptionLevel = btn.getAttribute('data-value');
-      setSegmented(el.interruptionLevelGroup, state.settings.interruptionLevel);
+    el.interruptionChanceSlider.addEventListener('input', function () {
+      state.settings.interruptionChance = parseInt(el.interruptionChanceSlider.value, 10);
+      el.interruptionChanceValue.textContent = state.settings.interruptionChance + '%';
+      persistSettings();
+    });
+
+    el.interruptionBeepVolume.addEventListener('input', function () {
+      state.settings.interruptionBeepVolume = parseInt(el.interruptionBeepVolume.value, 10);
+      el.interruptionBeepValue.textContent = state.settings.interruptionBeepVolume + '%';
+      persistSettings();
+    });
+
+    el.testInterruptionBeepBtn.addEventListener('click', function () {
+      ensureAudioContext();
+      playBeep(state.settings.interruptionBeepVolume / 100);
+    });
+
+    el.interruptionBreaksStreakToggle.addEventListener('change', function () {
+      state.settings.interruptionBreaksStreak = el.interruptionBreaksStreakToggle.checked;
       persistSettings();
     });
 
@@ -3468,9 +3598,20 @@
     el.nbackInstructions = q('nback-instructions');
     el.nbackInstructionsLevel = q('nback-instructions-level');
     el.cctToggle = q('cct-toggle');
+    el.cctBeepVolumeField = q('cct-beep-volume-field');
+    el.cctBeepVolume = q('cct-beep-volume');
+    el.cctBeepValue = q('cct-beep-value');
+    el.testCctBeepBtn = q('test-cct-beep-btn');
     el.interruptionToggle = q('interruption-toggle');
-    el.interruptionLevelField = q('interruption-level-field');
-    el.interruptionLevelGroup = document.querySelector('[data-group="interruption-level"]');
+    el.interruptionChanceField = q('interruption-chance-field');
+    el.interruptionChanceSlider = q('interruption-chance-slider');
+    el.interruptionChanceValue = q('interruption-chance-value');
+    el.interruptionBeepVolumeField = q('interruption-beep-volume-field');
+    el.interruptionBeepVolume = q('interruption-beep-volume');
+    el.interruptionBeepValue = q('interruption-beep-value');
+    el.testInterruptionBeepBtn = q('test-interruption-beep-btn');
+    el.interruptionBreaksStreakField = q('interruption-breaks-streak-field');
+    el.interruptionBreaksStreakToggle = q('interruption-breaks-streak-toggle');
     el.interruptionInstructions = q('interruption-instructions');
     el.responseRulesDefault = q('response-rules-default');
     el.responseRulesCct = q('response-rules-cct');
@@ -3561,6 +3702,8 @@
     el.slowestSpeed = q('slowest-speed');
     el.slowestSpeedCard = q('slowest-speed-card');
     el.totalTrials = q('total-trials');
+    el.longestStreakCard = q('longest-streak-card');
+    el.longestStreak = q('longest-streak');
     el.backToMenuBtn = q('back-to-menu-btn');
 
     el.historyList = q('history-list');
